@@ -308,20 +308,28 @@ export class SyncEngine {
     }
     const w = this.wanted.get(hash);
     if (w?.timer) clearTimeout(w.timer);
-    this.wanted.delete(hash);
     const buf = toArrayBuffer(data);
-    for (const [path, e] of [...this.bins]) {
-      if (e.h !== hash) continue;
-      await this.queue(path, async () => {
-        if ((await this.hashOf(path)) === hash) {
+    try {
+      for (const [path, e] of [...this.bins]) {
+        if (e.h !== hash) continue;
+        await this.queue(path, async () => {
+          // While this waited in line, the picture may have been deleted or changed.
+          // Writing it now would bring a deleted file back.
+          if (this.bins.get(path)?.h !== hash) return;
+          if ((await this.hashOf(path)) === hash) {
+            this.known.set(path, { h: hash, s: data.length });
+            return;
+          }
+          await this.vault.writeBinary(path, buf);
+          this.hashCache.set(path, hash);
           this.known.set(path, { h: hash, s: data.length });
-          return;
-        }
-        await this.vault.writeBinary(path, buf);
-        this.hashCache.set(path, hash);
-        this.known.set(path, { h: hash, s: data.length });
-        this.metaChanged();
-      });
+          this.metaChanged();
+        });
+      }
+    } finally {
+      // Only now stop waiting for it: until the file is written, another check of
+      // the same picture must not ask for it a second time.
+      this.wanted.delete(hash);
     }
   }
 
@@ -474,7 +482,6 @@ export class SyncEngine {
 
   private async reconcileBinary(path: string, knownSize?: number): Promise<void> {
     if (!this.opts.syncAttachments || !this.shouldSync(path)) return;
-    const entry = this.bins.get(path);
     const size = knownSize ?? (await this.vault.size(path));
 
     if (size !== null && size > this.opts.maxAttachmentBytes) {
@@ -483,9 +490,15 @@ export class SyncEngine {
     }
     // quick path at startup: same size and same checksum as last time
     const k = this.known.get(path);
-    if (!this.ready && entry && k && k.h === entry.h && k.s === size && !this.hashCache.has(path)) return;
+    const early = this.bins.get(path);
+    if (!this.ready && early && k && k.h === early.h && k.s === size && !this.hashCache.has(path)) return;
 
     const h = size === null ? null : await this.hashOf(path);
+
+    // Read the shared entry only now: while we were reading the file, a delete or
+    // update may have arrived, and acting on an older entry would bring a deleted
+    // picture back.
+    const entry = this.bins.get(path);
 
     if (!entry) {
       if (h === null) return;
@@ -520,6 +533,10 @@ export class SyncEngine {
       return;
     }
     if (h === null) {
+      // The file is missing here. If we had exactly this content a moment ago, the
+      // person just deleted it and the delete event is on its way. Asking for it again
+      // would bring the deleted picture back. (At startup we still ask, to be safe.)
+      if (this.ready && this.known.get(path)?.h === entry.h) return;
       this.requestBlob(entry.h);
       return;
     }
