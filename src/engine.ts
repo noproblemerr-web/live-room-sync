@@ -89,6 +89,8 @@ export class SyncEngine {
   private ready = false;
   private started = false;
   private stopped = false;
+  /** Set once stop() has drained the queue; no work may run after this. */
+  private closed = false;
   private freshDoc = false;
 
   private base = new Map<string, string>();
@@ -162,6 +164,7 @@ export class SyncEngine {
     this.files.unobserveDeep(this.onFilesChange);
     this.bins.unobserve(this.onBinsChange);
     this.awareness.destroy();
+    this.closed = true;
   }
 
   /** The provider tells us another device has answered. */
@@ -608,7 +611,7 @@ export class SyncEngine {
     const prev = this.chain.get(path) ?? Promise.resolve();
     const next: Promise<void> = prev
       .catch(() => undefined)
-      .then(() => (this.stopped && !this.started ? undefined : fn()))
+      .then(() => (this.closed ? undefined : fn()))
       .catch((err) => this.log('error', `${path}: ${err instanceof Error ? err.message : String(err)}`))
       .then(() => {
         if (this.chain.get(path) === next) this.chain.delete(path);

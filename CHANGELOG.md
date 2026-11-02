@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Fix: after the sync engine stops, no queued work can run any more (the guard in `queue()` could never trigger).
+- Fix: minimum Obsidian version is now 1.6.6, because the plugin uses `FileManager.trashFile`.
+- Declare `@trystero-p2p/nostr` and `@trystero-p2p/core` as dependencies (they were imported but not listed). Remove the unused `trystero` and `lib0`. Pin the dev tools that used `*`.
+- `npm test` exits cleanly when the tests finish.
+- Add CI (type-check, build, smoke test, sync tests) and a tag-triggered release workflow.
+- README: privacy and room-code notes.
+
 ## 0.1.0
 
 First public release.

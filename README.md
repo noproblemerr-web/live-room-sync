@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.1.0-informational)
-![Obsidian](https://img.shields.io/badge/Obsidian-1.5.0%2B-7c3aed)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.6.6%2B-7c3aed)
 
 An [Obsidian](https://obsidian.md) plugin that keeps a whole vault in sync between your own devices and a few friends, with **Google-Docs-style live typing**, using nothing but a **room code**. No account, no server to run, no domain.
 
@@ -142,7 +142,9 @@ Open the command palette (`Cmd/Ctrl + P`) and type "Live Room Sync":
 - **Deletes sync.** Deleting a note on one device removes it on the others (to the system trash).
 - **Not an audited security product.** Room-code derived keys and WebRTC encryption are used, but there has been no independent security review.
 - **File size.** Very large attachments are skipped (see the setting above).
-- **Known issues (v0.1.0).** In one full run of the sync test suite on macOS, 13 of 15 tests passed. The picture-delete test timed out once (it passes when run alone), and the run then hung on a later test. Treat the tests as not yet fully stable, and see Development below to run them yourself.
+- **Privacy.** Devices connect directly over WebRTC, so the devices in a room can see each other's IP addresses, and the public STUN servers see them too. The public relay only sees a hashed room name and encrypted hello messages, plus when you connect.
+- **Where the room code lives.** It is saved in plain text in `<vault>/.obsidian/plugins/live-room-sync/data.json`. This plugin never syncs that folder, but if your vault folder is backed up or shared by iCloud, Dropbox or git, the code goes with it. Keep that folder out of anything public.
+- **No way to remove one person.** Anyone who has the code can read, change and delete notes, and they keep their copy. To lock someone out, make a new code and give it only to the people you still trust.
 
 ## Troubleshooting
 

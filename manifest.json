@@ -2,7 +2,7 @@
   "id": "live-room-sync",
   "name": "Live Room Sync",
   "version": "0.1.0",
-  "minAppVersion": "1.5.0",
+  "minAppVersion": "1.6.6",
   "description": "Share a whole vault live between your devices and friends with one room code. Google-Docs-style typing, no server.",
   "author": "noproblemerr-web",
   "authorUrl": "https://github.com/noproblemerr-web",
