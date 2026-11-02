@@ -1,0 +1,36 @@
+{
+  "name": "live-room-sync",
+  "version": "0.1.0",
+  "description": "Obsidian plugin: live, serverless vault sync and Google-Docs-style typing with a room code.",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "tsx --test --test-timeout=30000 test/sync.test.ts",
+    "test:smoke": "npm run build && node test/smoke.cjs",
+    "test:browser": "node test/browser/build.mjs && node test/browser/run.cjs"
+  },
+  "dependencies": {
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@trystero-p2p/mqtt": "^0.26.0",
+    "@trystero-p2p/torrent": "^0.26.0",
+    "diff-match-patch": "^1.0.5",
+    "lib0": "^0.2.119",
+    "trystero": "^0.26.0",
+    "y-codemirror.next": "^0.3.6",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "*",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "jsdom": "*",
+    "obsidian": "^1.14.4",
+    "playwright": "*",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
