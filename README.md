@@ -1,12 +1,12 @@
 # Live Room Sync
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.2.0-informational)
+![Version](https://img.shields.io/badge/version-0.3.0-informational)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.6.6%2B-7c3aed)
 
 An [Obsidian](https://obsidian.md) plugin that lets you **party up** with friends (or your own devices) and share a whole vault live, with **Google-Docs-style typing**. Start a party, send an invite link, and your friends show up with their name and picture. No account, no server to run, no domain.
 
-> **Status: early (v0.2.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
+> **Status: early (v0.3.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
 
 ## Screenshots
 
@@ -46,6 +46,9 @@ Real screenshots from Obsidian 1.14.5 on macOS, taken in throwaway demo vaults (
 - **Your profile.** Pick a name, an emoji picture and a color. Friends see them, and your cursor shows as `🐼 Bo` in the note.
 - **Easy invites.** One link or one code. Clicking an invite link opens Obsidian and the join dialog.
 - **You decide who comes in.** New devices ask to join and you press Allow or Block. Devices prove who they are with a signature, so nobody can pretend to be a device you already allowed.
+- **Click a friend to jump to their note.** The party panel shows what each person is editing. Click their row and that note opens for you.
+- **Join and leave messages.** A small message when someone joins or leaves ("🐼 Bo joined the party"). You can turn it off.
+- **Note history.** Earlier versions of each note are kept on your device: one before a friend's change lands, and now and then while you work. Open **Show history of this note**, preview a version and restore it. Restoring is a normal edit, and the version it replaces is saved first.
 - **Whole vault sync.** Notes, folders, renames and deletes follow everyone, so graph view, links and backlinks keep working.
 - **Live typing.** Open the same note on two devices and see each other's text and cursors in about a second.
 - **Attachments.** Images, PDFs and other files sync too (default limit 25 MB on desktop, 10 MB on phones).
@@ -61,7 +64,7 @@ Real screenshots from Obsidian 1.14.5 on macOS, taken in throwaway demo vaults (
    - `.obsidian` is hidden. On macOS press `Cmd + Shift + .` in Finder to show hidden folders. On Windows turn on "Hidden items" in File Explorer.
 3. In Obsidian: **Settings → Community plugins**. If "Restricted mode" is on, turn it off. Click the refresh icon, then switch **Live Room Sync** on.
 
-Do this on every device (and every friend does it on theirs). **Everyone must use the same version.** Version 0.2.0 cannot sync with 0.1.x.
+Do this on every device (and every friend does it on theirs). **Everyone must use the same version.** Version 0.3.0 can sync with 0.2.x, but not with 0.1.x.
 
 ### Option B: build from source
 
@@ -117,6 +120,7 @@ Device A  <---- direct WebRTC link ---->  Device B
 | **Your profile** | Name, emoji picture and color. |
 | **Party** | Start, join, invite, open the panel or leave. |
 | **Live typing** | Turn live cursors and keystroke-level sync on or off. |
+| **Show join and leave messages** | A small message when someone joins or leaves. |
 | **Show which note I am in** | Let friends see "Editing Weekend plan" next to your name. |
 | **Sync pictures and other files** | Turn attachment sync on or off. |
 | **Biggest file (MB)** | Larger files are skipped. Default 25 (10 on phones). |
@@ -130,6 +134,7 @@ Device A  <---- direct WebRTC link ---->  Device B
 Open the command palette (`Cmd/Ctrl + P`) and type "Live Room Sync":
 
 - **Open party panel**
+- **Show history of this note**
 - **Copy invite link**
 - **Join a party**
 - **Copy room code**
@@ -163,8 +168,17 @@ Click it to open the party panel.
 - **Strict networks** (some schools and offices) can block direct connections. A TURN server may be needed.
 - **Deletes sync.** Deleting a note on one device removes it on the others (to the system trash).
 - **Not an audited security product.** Keys derived from the code and WebRTC encryption are used, and devices are checked by signature, but there has been no independent security review.
-- **Known issue (0.2.0).** The line under a friend's name sometimes shows "Online" instead of "Editing <note>". Notes and cursors are not affected.
+- **Known issue.** In one manual test the line under a friend's name showed "Online" instead of "Editing <note>". An automated two-plugin test shows it working, so it may be rare. Notes and cursors are not affected. Please report it if you see it.
+- **Note history is small on purpose.** It keeps the last 15 versions of each note (up to 500 KB each), on this device only, and it is not shared with friends.
 - **Big files.** Attachments are loaded into memory as a whole, so very large files are skipped (see the setting above).
+
+## Disclosures
+
+- **Network use.** To find each other, devices use a free public relay (Nostr by default; BitTorrent trackers or MQTT if you choose them) and public STUN servers. After that, devices talk directly to each other over WebRTC. If you set a TURN server, traffic can go through it.
+- **What the relays see.** A scrambled room name and encrypted hello messages, plus when you connect. They never see your notes.
+- **Accounts, ads, payments, telemetry.** None. The plugin has no account, shows no ads, takes no payments and sends no usage data.
+- **Files.** The plugin reads and writes notes and attachments inside your vault (the ones you share). It keeps its own settings, device key, sync state and note history in `.obsidian/plugins/live-room-sync/`. It never touches files outside your vault.
+- **Clipboard.** Only when you press a copy button or command (invite link, code or debug log).
 
 ## Troubleshooting
 

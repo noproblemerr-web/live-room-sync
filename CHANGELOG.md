@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Note history: earlier versions of each note are kept on your device (before a friend's change, before a merge, and now and then while you work). Command: "Show history of this note" lets you preview and restore a version.
+- Click a friend in the party panel to open the note they are in.
+- Join and leave messages ("Bo joined the party"), with a setting to turn them off.
+- A new end-to-end test runs two copies of the whole plugin through start, invite, join, allow, sync, history and leave. CI runs it on every change.
+- Follow Obsidian's plugin guidelines for the community list: no inline styles (colors use CSS variables), console shows only errors, sentence case text, the history command only appears when a note is open, clearer manifest description, a "Disclosures" section in the README.
+- Add `docs/submitting.md` with the steps for the community plugin directory.
+
 ## 0.2.0
 
 A friendlier way to share: parties, profiles and approval. **Not compatible with 0.1.x**: update every device.

@@ -1,12 +1,12 @@
 {
   "name": "live-room-sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Obsidian plugin: live, serverless vault sync and Google-Docs-style typing with a room code.",
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
     "typecheck": "tsc --noEmit -p .",
-    "test": "tsx --test --test-force-exit --test-timeout=30000 test/sync.test.ts test/party.test.ts",
+    "test": "tsx --test --test-force-exit --test-timeout=30000 test/sync.test.ts test/party.test.ts test/history.test.ts test/plugin.test.ts",
     "test:smoke": "npm run build && node test/smoke.cjs",
     "test:browser": "node test/browser/build.mjs && node test/browser/run.cjs"
   },

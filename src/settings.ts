@@ -22,6 +22,8 @@ export interface Settings {
   liveTyping: boolean;
   /** Let the party see which note you are in. */
   showActivity: boolean;
+  /** small messages when someone joins or leaves the party */
+  showToasts: boolean;
   syncAttachments: boolean;
   maxAttachmentMB: number;
   excludedFolders: string;
@@ -48,6 +50,7 @@ export const defaultSettings = (name: string, mobile: boolean): Settings => ({
   color: pick(COLORS),
   liveTyping: true,
   showActivity: true,
+  showToasts: true,
   syncAttachments: true,
   maxAttachmentMB: mobile ? 10 : 25,
   excludedFolders: '',

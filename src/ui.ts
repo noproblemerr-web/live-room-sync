@@ -1,6 +1,7 @@
 import { App, ItemView, Modal, Notice, PluginSettingTab, Setting, WorkspaceLeaf, setIcon } from 'obsidian';
 import { AVATARS, COLORS, type Settings } from './settings';
 import { checkRoomCode, codeFromPaste } from './util';
+import { REASON_TEXT, whenText, type Version } from './history';
 import type { NetworkKind } from './transport-trystero';
 
 export const VIEW_TYPE = 'live-room-party';
@@ -16,6 +17,8 @@ export interface Member {
   peerId?: string;
   /** what they are doing, or when you last partied */
   note?: string;
+  /** the note they have open, so you can jump to it */
+  path?: string;
 }
 
 export interface PartyStatus {
@@ -43,6 +46,7 @@ export interface PartyHost {
   forget(id: string): Promise<void>;
   setProfile(p: { name: string; avatar: string; color: string }): Promise<void>;
   restart(): Promise<void>;
+  openNote(path: string): void;
   /** the settings page sets this while it is open */
   settingsRefresh: (() => void) | null;
 }
@@ -52,8 +56,7 @@ export interface PartyHost {
 function avatar(parent: HTMLElement, m: { avatar: string; color: string }, online: boolean, big = false): HTMLElement {
   const wrap = parent.createDiv({ cls: 'lrs-avatar' + (big ? ' lrs-big' : '') });
   const face = wrap.createDiv({ cls: 'lrs-face', text: m.avatar });
-  face.style.background = m.color + '33';
-  face.style.borderColor = m.color;
+  face.setCssProps({ '--lrs-color': m.color });
   if (online) wrap.createDiv({ cls: 'lrs-dot' });
   return wrap;
 }
@@ -85,7 +88,7 @@ export class PartyView extends ItemView {
     const st = host.status();
 
     const hero = root.createDiv({ cls: 'lrs-hero' });
-    hero.createDiv({ cls: 'lrs-title', text: 'PARTY UP' });
+    hero.createDiv({ cls: 'lrs-title', text: 'Party up' });
     hero.createDiv({ cls: 'lrs-sub', text: st.summary });
 
     if (!st.hasRoom) {
@@ -145,6 +148,13 @@ export class PartyView extends ItemView {
       const text = row.createDiv({ cls: 'lrs-text' });
       text.createDiv({ cls: 'lrs-name', text: m.name });
       text.createDiv({ cls: 'lrs-note', text: m.note ?? 'Online' });
+      if (m.path) {
+        // click a friend to open the note they are in
+        const path = m.path;
+        row.addClass('lrs-click');
+        row.setAttr('aria-label', `Open ${m.name}'s note`);
+        row.onclick = () => host.openNote(path);
+      }
     }
 
     if (away.length) {
@@ -319,7 +329,7 @@ export class ProfileModal extends Modal {
       colors.empty();
       for (const c of COLORS) {
         const b = colors.createEl('button', { cls: 'lrs-swatch' + (c === color ? ' lrs-on' : '') });
-        b.style.background = c;
+        b.setCssProps({ '--lrs-color': c });
         b.onclick = () => {
           color = c;
           drawColors();
@@ -336,6 +346,57 @@ export class ProfileModal extends Modal {
     row.createEl('button', { text: 'Save', cls: 'mod-cta' }).onclick = async () => {
       this.close();
       await this.host.setProfile({ name: name.trim() || s.deviceName, avatar: face, color });
+    };
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/** Earlier versions of one note. Pick one to preview it, then restore it. */
+export class HistoryModal extends Modal {
+  constructor(
+    app: App,
+    private title: string,
+    private versions: Version[],
+    private onRestore: (v: Version) => Promise<void>,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass('lrs-modal');
+    contentEl.createEl('h2', { text: `History of "${this.title}"` });
+    contentEl.createEl('p', {
+      text: 'Earlier versions saved on this device. Restoring one is a normal edit: your friends get it too, and the version you replace is saved first.',
+      cls: 'lrs-muted',
+    });
+    const list = contentEl.createDiv({ cls: 'lrs-versions' });
+    const preview = contentEl.createEl('pre', { cls: 'lrs-previewtext', text: 'Pick a version to see it here.' });
+    const row = contentEl.createDiv({ cls: 'lrs-buttons lrs-end' });
+    row.createEl('button', { text: 'Close' }).onclick = () => this.close();
+    const restore = row.createEl('button', { text: 'Restore this version', cls: 'mod-cta' });
+    restore.disabled = true;
+    let chosen: Version | null = null;
+
+    for (const v of this.versions) {
+      const item = list.createDiv({ cls: 'lrs-version' });
+      item.createDiv({ cls: 'lrs-name', text: whenText(v.t) });
+      item.createDiv({ cls: 'lrs-note', text: REASON_TEXT[v.reason] });
+      item.onclick = () => {
+        chosen = v;
+        list.querySelectorAll('.lrs-version').forEach((e) => e.removeClass('lrs-on'));
+        item.addClass('lrs-on');
+        preview.setText(v.text.length > 3000 ? v.text.slice(0, 3000) + '\n…' : v.text);
+        restore.disabled = false;
+      };
+    }
+    restore.onclick = async () => {
+      if (!chosen) return;
+      this.close();
+      await this.onRestore(chosen);
     };
   }
 
@@ -447,6 +508,15 @@ export class LiveRoomSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(s.showActivity).onChange(async (v) => {
           s.showActivity = v;
+          await host.saveSettings();
+        }),
+      );
+    new Setting(containerEl)
+      .setName('Show join and leave messages')
+      .setDesc('A small message when someone joins or leaves the party.')
+      .addToggle((t) =>
+        t.setValue(s.showToasts).onChange(async (v) => {
+          s.showToasts = v;
           await host.saveSettings();
         }),
       );

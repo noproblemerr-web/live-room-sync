@@ -92,7 +92,7 @@ export class TrysteroTransport implements Transport {
     if (!target && this.connected.size === 0) return;
     const buf = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer;
     a.send(buf, target ? { target } : undefined).catch((err: unknown) => {
-      console.warn('[live-room] send failed', type, err);
+      console.debug('[live-room] send failed', type, err);
     });
   }
 

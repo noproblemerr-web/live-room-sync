@@ -15,6 +15,7 @@
   font-style: italic;
   letter-spacing: 0.02em;
   line-height: 1.1;
+  text-transform: uppercase;
 }
 .lrs-sub { margin-top: 4px; font-size: var(--font-ui-small); opacity: 0.85; }
 
@@ -54,7 +55,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--lrs-color, #888) 20%, transparent);
+  border: 2px solid var(--lrs-color, var(--background-modifier-border));
   border-radius: 50%;
   font-size: 20px;
   line-height: 1;
@@ -94,8 +96,19 @@
 .lrs-preview { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .lrs-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .lrs-pick { width: 40px; height: 40px; padding: 0; font-size: 20px; border-radius: 50%; }
-.lrs-swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.lrs-swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid transparent; background: var(--lrs-color); }
 .lrs-pick.lrs-on, .lrs-swatch.lrs-on { box-shadow: 0 0 0 2px #1b5cff; }
 
 .lrs-advanced { margin-top: 18px; }
 .lrs-advanced > summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+
+/* Click a friend to open their note */
+.lrs-card.lrs-click { cursor: pointer; }
+.lrs-card.lrs-click:hover { background: var(--background-modifier-hover); }
+
+/* Note history */
+.lrs-versions { max-height: 180px; overflow-y: auto; margin: 8px 0; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.lrs-version { padding: 6px 10px; cursor: pointer; }
+.lrs-version:hover { background: var(--background-modifier-hover); }
+.lrs-version.lrs-on { background: color-mix(in srgb, #1b5cff 20%, transparent); }
+.lrs-previewtext { max-height: 220px; overflow: auto; white-space: pre-wrap; padding: 8px 10px; border-radius: 8px; background: var(--background-secondary); font-size: var(--font-ui-small); }

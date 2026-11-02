@@ -57,6 +57,8 @@ export interface EngineOptions {
   knownGraceMs?: number;
   /** extra wait after the first device answered, so its updates have arrived */
   syncSettleMs?: number;
+  /** a text file is about to be changed by someone else: keep the old text for note history */
+  onSnapshot?: (path: string, text: string, reason: 'remote' | 'merge') => void;
   log?: (level: 'info' | 'warn' | 'error', msg: string) => void;
   notify?: (msg: string) => void;
   now?: () => Date;
@@ -499,6 +501,7 @@ export class SyncEngine {
     }
     if (D === B) {
       // only the room changed it
+      this.opts.onSnapshot?.(path, D, 'remote');
       await this.vault.writeText(path, T);
       this.base.set(path, T);
       return;
@@ -514,7 +517,10 @@ export class SyncEngine {
     const m = merge3(B, D, T);
     if (!m.ok) await this.conflictCopy(path, D);
     applyTextDiff(ytext, m.text, LOCAL);
-    if (m.text !== D) await this.vault.writeText(path, m.text);
+    if (m.text !== D) {
+      this.opts.onSnapshot?.(path, D, 'merge');
+      await this.vault.writeText(path, m.text);
+    }
     this.base.set(path, m.text);
     this.markPushed(path);
   }

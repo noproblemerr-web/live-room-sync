@@ -21,7 +21,7 @@ const mock = {
     constructor() {
       this.manifest = { id: 'live-room-sync', dir: '.obsidian/plugins/live-room-sync' };
       this.layoutCbs = [];
-      const adapter = { exists: async (p) => vfiles.has(p) || p in store, readBinary: async (p) => store[p], writeBinary: async (p, d) => { store[p] = d; } };
+      const adapter = { exists: async (p) => vfiles.has(p) || p in store, readBinary: async (p) => store[p], writeBinary: async (p, d) => { store[p] = d; }, read: async (p) => store[p], write: async (p, d) => { store[p] = d; }, mkdir: async () => {} };
       this.app = {
         vault: {
           configDir: '.obsidian', adapter,

@@ -2,13 +2,15 @@ import { EventRef, MarkdownView, Notice, Platform, Plugin, TFile, normalizePath 
 import type { EditorView } from '@codemirror/view';
 import { selfId } from '@trystero-p2p/nostr';
 import { SyncEngine, type Persist, type VaultAdapter } from './engine';
-import { RoomProvider, type GateDecision, type PeerInfo } from './provider';
+import { RoomProvider, type GateDecision, type PeerInfo, type Transport } from './provider';
+import { History, whenText, type HistoryStore } from './history';
 import { TrysteroTransport } from './transport-trystero';
 import { CmBinder } from './cm-binder';
 import { createIdentity, signText } from './identity';
 import { defaultSettings, ago, type Settings } from './settings';
 import {
   FirstRunModal,
+  HistoryModal,
   JoinModal,
   LiveRoomSettingTab,
   PartyView,
@@ -40,7 +42,11 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
 
   private engine: SyncEngine | null = null;
   private provider: RoomProvider | null = null;
-  private transport: TrysteroTransport | null = null;
+  private transport: Transport | null = null;
+  private history: History | null = null;
+  private lastPath: string | null = null;
+  private lastAuto = 0;
+  private hereIds = new Map<string, { name: string; avatar: string }>();
   private binder = new CmBinder(this.binderHost());
   private eventRefs: EventRef[] = [];
   private statusEl: HTMLElement | null = null;
@@ -61,6 +67,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       this.settings.identity = await createIdentity();
       await this.saveSettings();
     }
+    this.history = new History(this.makeHistoryStore());
     this.registerEditorExtension(this.binder.extension);
     this.registerView(VIEW_TYPE, (leaf) => new PartyView(leaf, this));
     this.addRibbonIcon('users', 'Open party panel', () => void this.openParty());
@@ -81,6 +88,16 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     this.addCommand({ id: 'open-party', name: 'Open party panel', callback: () => void this.openParty() });
     this.addCommand({ id: 'copy-invite', name: 'Copy invite link', callback: () => void this.copyInvite() });
     this.addCommand({ id: 'join-party', name: 'Join a party', callback: () => new JoinModal(this.app, this).open() });
+    this.addCommand({
+      id: 'note-history',
+      name: 'Show history of this note',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !isTextPath(file.path)) return false;
+        if (!checking) void this.showHistory();
+        return true;
+      },
+    });
     this.addCommand({ id: 'copy-room-code', name: 'Copy room code', callback: () => void this.copyCode() });
     this.addCommand({ id: 'reconnect', name: 'Reconnect', callback: () => void this.restart() });
     this.addCommand({
@@ -175,6 +192,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
         maxAttachmentBytes: Math.max(1, this.settings.maxAttachmentMB) * 1024 * 1024,
         log: (level, msg) => this.log(level, msg),
         notify: (msg) => new Notice('Live Room Sync: ' + msg, 10000),
+        onSnapshot: (path, text, reason) => void this.history?.record(path, text, reason),
       });
       engine.importMeta({ known: this.settings.known });
       engine.onMetaChange = () => this.queueMetaSave();
@@ -189,12 +207,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
         this.app.vault.on('rename', (f, old) => f instanceof TFile && engine.onVaultRename(f.path, old)),
       ];
 
-      const transport = await TrysteroTransport.create({
-        code,
-        network: this.settings.network,
-        turn: this.parseTurn(),
-        selfId,
-      });
+      const transport = await this.createTransport(code);
       this.transport = transport;
       const id = this.settings.identity!;
       const provider = new RoomProvider(engine.doc, engine.awareness, transport, {
@@ -245,6 +258,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     this.transport = null;
     this.engine = null;
     this.lastFile = null;
+    this.lastPath = null;
+    this.hereIds = new Map();
     try {
       await provider?.destroy();
     } catch (err) {
@@ -257,6 +272,11 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     }
     this.renderStatus();
     this.refreshViews();
+  }
+
+  /** Tests replace this with an in-memory transport. */
+  protected async createTransport(code: string): Promise<Transport> {
+    return TrysteroTransport.create({ code, network: this.settings.network, turn: this.parseTurn(), selfId });
   }
 
   private parseTurn() {
@@ -317,6 +337,13 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   /** Keep the friends list fresh and tell the person when someone is waiting. */
   private onRoster(): void {
     const roster = this.provider?.roster() ?? [];
+    const here = new Map<string, { name: string; avatar: string }>();
+    for (const r of roster) if (r.state === 'allowed' && r.info) here.set(r.info.id, { name: r.info.name, avatar: r.info.avatar });
+    if (this.settings.showToasts) {
+      for (const [id, p] of here) if (!this.hereIds.has(id)) new Notice(`${p.avatar} ${p.name} joined the party`);
+      for (const [id, p] of this.hereIds) if (!here.has(id)) new Notice(`${p.avatar} ${p.name} left the party`);
+    }
+    this.hereIds = here;
     for (const r of roster) {
       if (r.state === 'pending' && r.info && !this.asked.has(r.peerId)) {
         this.asked.add(r.peerId);
@@ -388,6 +415,27 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     this.refreshViews(true);
   }
 
+  openNote(path: string): void {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
+    else new Notice('That note has not arrived on this device yet.');
+  }
+
+  async showHistory(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || !isTextPath(file.path)) return void new Notice('Open a note first.');
+    const versions = (await this.history?.list(file.path)) ?? [];
+    if (!versions.length) {
+      return void new Notice('No earlier versions yet. They are saved when a friend changes a note, and now and then while you work.');
+    }
+    new HistoryModal(this.app, file.basename, versions, async (v) => {
+      const current = await this.app.vault.read(file);
+      await this.history?.record(file.path, current, 'restore');
+      await this.app.vault.modify(file, v.text);
+      new Notice(`Restored the version from ${whenText(v.t)}.`);
+    }).open();
+  }
+
   async openParty(): Promise<void> {
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE)[0];
@@ -407,11 +455,11 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     const s = this.settings;
     const out: Member[] = [];
     const awareness = this.engine?.awareness;
-    const live = new Map<string, { name?: string; avatar?: string; color?: string; file?: string }>();
+    const live = new Map<string, { name?: string; avatar?: string; color?: string; file?: string; path?: string }>();
     if (awareness) {
       for (const st of awareness.getStates().values()) {
-        const u = (st as { user?: { id?: string; pname?: string; avatar?: string; color?: string; file?: string } }).user;
-        if (u?.id) live.set(u.id, { name: u.pname, avatar: u.avatar, color: u.color, file: u.file });
+        const u = (st as { user?: { id?: string; pname?: string; avatar?: string; color?: string; file?: string; path?: string } }).user;
+        if (u?.id) live.set(u.id, { name: u.pname, avatar: u.avatar, color: u.color, file: u.file, path: u.path });
       }
     }
     const note = (file?: string) => (file ? `Editing ${file}` : 'Online');
@@ -439,6 +487,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
           kind: 'here',
           peerId: r.peerId,
           note: note(l?.file),
+          path: l?.path,
         });
       } else if (r.state === 'pending') {
         out.push({ id: r.info.id, name: r.info.name, avatar: r.info.avatar, color: r.info.color, kind: 'waiting', peerId: r.peerId });
@@ -481,7 +530,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
 
   // ------------------------------------------------------------------ you in the room
 
-  private userState(file: string | null) {
+  private userState(file: string | null, path: string | null) {
     const s = this.settings;
     return {
       id: s.identity?.id,
@@ -491,11 +540,12 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       color: s.color,
       colorLight: s.color + '33',
       file: s.showActivity ? file : null,
+      path: s.showActivity ? path : null,
     };
   }
 
   private setLocalUser(engine: SyncEngine): void {
-    engine.awareness.setLocalStateField('user', this.userState(this.lastFile));
+    engine.awareness.setLocalStateField('user', this.userState(this.lastFile, this.lastPath));
   }
 
   updateUser(): void {
@@ -524,9 +574,17 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       // tell the party which note you are in (just its name)
       const active = this.app.workspace.getActiveFile();
       const name = active && isTextPath(active.path) && engine.shouldSync(active.path) ? active.basename : null;
-      if (name !== this.lastFile) {
+      const path = name && active ? active.path : null;
+      if (name !== this.lastFile || path !== this.lastPath) {
         this.lastFile = name;
+        this.lastPath = path;
         this.updateUser();
+      }
+      if (path && Date.now() - this.lastAuto > 30_000) {
+        // now and then, keep a copy of the note you are working in (for note history)
+        this.lastAuto = Date.now();
+        const text = engine.getText(path);
+        if (text) void this.history?.record(path, text.toString(), 'auto');
       }
       if (Date.now() - this.lastTouch > 30_000) {
         this.lastTouch = Date.now();
@@ -579,7 +637,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     const line = `${new Date().toISOString().slice(11, 19)} ${level} ${msg}`;
     this.logLines.push(line);
     if (this.logLines.length > 200) this.logLines.splice(0, this.logLines.length - 200);
-    if (level !== 'info') console.warn('[live-room]', msg);
+    if (level === 'error') console.error('[live-room]', msg);
+    else if (level !== 'info') console.debug('[live-room]', msg);
   }
 
   // ------------------------------------------------------------------ vault glue
@@ -636,6 +695,22 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       trash: async (p) => {
         const f = fileAt(p);
         if (f) await this.app.fileManager.trashFile(f);
+      },
+    };
+  }
+
+  private makeHistoryStore(): HistoryStore {
+    const base = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const dir = normalizePath(`${base}/history`);
+    const adapter = this.app.vault.adapter;
+    return {
+      read: async (key) => {
+        const p = normalizePath(`${dir}/${key}`);
+        return (await adapter.exists(p)) ? adapter.read(p) : null;
+      },
+      write: async (key, data) => {
+        if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+        await adapter.write(normalizePath(`${dir}/${key}`), data);
       },
     };
   }
