@@ -82,6 +82,8 @@ export class SyncEngine {
   readonly awareness: Awareness;
   readonly files: Y.Map<Y.Text>;
   readonly bins: Y.Map<BinEntry>;
+  /** old path -> new path, so edits made elsewhere during a rename follow the file */
+  readonly moved: Y.Map<string>;
 
   onMetaChange: (() => void) | null = null;
 
@@ -94,6 +96,8 @@ export class SyncEngine {
   private freshDoc = false;
 
   private base = new Map<string, string>();
+  /** the last text this device and the room agreed on; used to carry edits across a rename */
+  private agreed = new Map<string, string>();
   private known = new Map<string, BinEntry>();
   private dirty = new Set<string>();
   private deletedWhileDirty = new Set<string>();
@@ -113,6 +117,7 @@ export class SyncEngine {
     this.awareness = new Awareness(this.doc);
     this.files = this.doc.getMap<Y.Text>('files');
     this.bins = this.doc.getMap<BinEntry>('bins');
+    this.moved = this.doc.getMap<string>('moved');
   }
 
   // ---------------------------------------------------------------- setup
@@ -137,7 +142,11 @@ export class SyncEngine {
     const state = await this.opts.persist.load();
     this.freshDoc = !state;
     if (state) Y.applyUpdate(this.doc, state, 'load');
-    for (const [p, t] of this.files) this.base.set(p, t.toString());
+    for (const [p, t] of this.files) this.setBoth(p, t.toString());
+    if (this.moved.size > 2000) {
+      const extra = [...this.moved.keys()].slice(0, this.moved.size - 1000);
+      this.doc.transact(() => extra.forEach((k) => this.moved.delete(k)), LOCAL);
+    }
 
     this.doc.on('update', this.schedulePersist);
     this.files.observeDeep(this.onFilesChange);
@@ -268,6 +277,7 @@ export class SyncEngine {
     if (!this.started || this.stopped) return;
     if (this.expectDelete.delete(path)) return;
     this.base.delete(path);
+    this.agreed.delete(path);
     this.hashCache.delete(path);
     this.known.delete(path);
     this.metaChanged();
@@ -281,8 +291,59 @@ export class SyncEngine {
 
   onVaultRename(newPath: string, oldPath: string): void {
     if (!this.started || this.stopped) return;
+    const movable = this.ready && this.shouldSync(newPath) && this.shouldSync(oldPath);
+    const text = this.files.get(oldPath);
+    const bin = this.bins.get(oldPath);
+
+    if (movable && text && isTextPath(newPath)) {
+      // Move it in one step and remember where it went, so an edit made on another
+      // device while we renamed ends up in the new note instead of bringing the old one back.
+      const t = text.toString();
+      const base = this.base.get(oldPath) ?? t;
+      const agreed = this.agreed.get(oldPath) ?? t;
+      this.forgetLocal(oldPath);
+      this.doc.transact(() => {
+        this.files.set(newPath, new Y.Text(t));
+        this.files.delete(oldPath);
+        this.moved.set(oldPath, newPath);
+      }, LOCAL);
+      this.base.set(newPath, base);
+      this.agreed.set(newPath, agreed);
+      void this.queue(newPath, () => this.reconcileText(newPath));
+      return;
+    }
+    if (movable && bin && !isTextPath(newPath)) {
+      const known = this.known.get(oldPath);
+      const hash = this.hashCache.get(oldPath);
+      this.forgetLocal(oldPath);
+      this.doc.transact(() => {
+        this.bins.set(newPath, bin);
+        this.bins.delete(oldPath);
+        this.moved.set(oldPath, newPath);
+      }, LOCAL);
+      if (known) this.known.set(newPath, known);
+      if (hash) this.hashCache.set(newPath, hash);
+      this.metaChanged();
+      void this.queue(newPath, () => this.reconcileBinary(newPath));
+      return;
+    }
     this.onVaultDelete(oldPath);
     this.onVaultCreate(newPath);
+  }
+
+  private setBoth(path: string, text: string): void {
+    this.base.set(path, text);
+    this.agreed.set(path, text);
+  }
+
+  /** Forget what this device remembers about a path, without touching the shared notes. */
+  private forgetLocal(path: string): void {
+    this.base.delete(path);
+    this.agreed.delete(path);
+    this.hashCache.delete(path);
+    this.known.delete(path);
+    this.dirty.delete(path);
+    this.bound.delete(path);
   }
 
   // ---------------------------------------------------------------- blobs (attachments)
@@ -465,6 +526,25 @@ export class SyncEngine {
       this.base.delete(path);
       return;
     }
+    const to = this.moved.get(path);
+    const target = to ? this.files.get(to) : undefined;
+    if (to && target && !this.bound.has(path)) {
+      // It was renamed on another device. Carry any edits made here over to the new name.
+      const B = this.agreed.get(path) ?? this.base.get(path) ?? D;
+      if (D !== B && D !== target.toString()) {
+        const m = merge3(B, D, target.toString());
+        if (!m.ok) await this.conflictCopy(path, D);
+        applyTextDiff(target, m.text, LOCAL);
+        void this.queue(to, () => this.reconcileText(to));
+      }
+      this.deletedWhileDirty.delete(path);
+      this.expectDelete.add(path);
+      timer(() => this.expectDelete.delete(path), 5000);
+      this.base.delete(path);
+      this.agreed.delete(path);
+      await this.vault.trash(path);
+      return;
+    }
     const unconfirmed = this.deletedWhileDirty.delete(path);
     if ((unconfirmed || D !== this.base.get(path)) && !this.bound.has(path)) {
       // someone deleted it, but this device has newer edits: keep them and share again
@@ -573,7 +653,11 @@ export class SyncEngine {
         if (typeof k === 'string') touched.add(k);
       }
     }
-    for (const p of touched) this.schedule(p, () => this.reconcileText(p));
+    for (const p of touched) {
+      const t = this.files.get(p);
+      if (t) this.agreed.set(p, t.toString()); // something arrived from another device
+      this.schedule(p, () => this.reconcileText(p));
+    }
   };
 
   private onBinsChange = (ev: Y.YMapEvent<BinEntry>, txn: Y.Transaction) => {
@@ -654,7 +738,7 @@ export class SyncEngine {
 
   private schedulePersist = () => {
     if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.persistTimer = timer(() => void this.flushPersist(), 700);
+    this.persistTimer = timer(() => void this.flushPersist(), 2500);
   };
 
   async flushPersist(): Promise<void> {

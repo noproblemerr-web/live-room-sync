@@ -109,12 +109,19 @@ export function conflictCandidate(path: string, who: string, when: Date, n: numb
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+/** The last letter of a new code is a check letter, so a typo can be caught. */
+const checkLetter = (body: string) => {
+  let sum = 0;
+  for (let i = 0; i < body.length; i++) sum += (CODE_ALPHABET.indexOf(body[i]) + 1) * (2 * i + 1); // odd weights: any single wrong letter changes the sum
+  return CODE_ALPHABET[sum % CODE_ALPHABET.length];
+};
+
 export function generateRoomCode(): string {
-  const bytes = new Uint8Array(20);
+  const bytes = new Uint8Array(19);
   crypto.getRandomValues(bytes);
   let raw = '';
   for (const b of bytes) raw += CODE_ALPHABET[b % CODE_ALPHABET.length];
-  return formatRoomCode(raw);
+  return formatRoomCode(raw + checkLetter(raw));
 }
 
 export function formatRoomCode(raw: string): string {
@@ -125,4 +132,32 @@ export function formatRoomCode(raw: string): string {
 export function normalizeRoomCode(input: string): string {
   const clean = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return clean.length >= 16 ? clean : '';
+}
+
+export type CodeStatus =
+  | 'ok' // a new code and the check letter matches
+  | 'typo' // 20 letters but the check letter does not match: probably a typo (or a code from version 0.1.x)
+  | 'short' // too short to be a code
+  | 'empty';
+
+export function checkRoomCode(input: string): { clean: string; status: CodeStatus } {
+  const clean = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!clean) return { clean: '', status: 'empty' };
+  if (clean.length < 16) return { clean: '', status: 'short' };
+  const valid = clean.length === 20 && [...clean].every((c) => CODE_ALPHABET.includes(c));
+  if (valid && checkLetter(clean.slice(0, 19)) === clean[19]) return { clean, status: 'ok' };
+  return { clean, status: 'typo' };
+}
+
+/** Pulls a code out of what a person pasted: a bare code or an invite link. */
+export function codeFromPaste(text: string): string {
+  const t = text.trim();
+  const m = /[?&]code=([A-Za-z0-9-]+)/.exec(t);
+  return m ? m[1] : t;
+}
+
+export const INVITE_PROTOCOL = 'live-room-sync';
+
+export function inviteLink(code: string, from: string): string {
+  return `obsidian://${INVITE_PROTOCOL}?code=${encodeURIComponent(formatRoomCode(normalizeRoomCode(code)))}&from=${encodeURIComponent(from)}`;
 }

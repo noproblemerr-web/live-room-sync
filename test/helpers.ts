@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import { SyncEngine, type VaultAdapter, type Persist } from '../src/engine';
-import { RoomProvider, type Transport, type MsgType } from '../src/provider';
+import { RoomProvider, type Transport, type MsgType, type PeerInfo, type GateDecision } from '../src/provider';
+import { signText, type Identity } from '../src/identity';
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -153,7 +154,19 @@ export class Device {
   logs: string[] = [];
   notices: string[] = [];
 
-  constructor(readonly name: string, private hub: Hub, private opts: { fresh?: number; known?: number; attachments?: boolean } = {}) {}
+  constructor(
+    readonly name: string,
+    private hub: Hub,
+    private opts: {
+      fresh?: number;
+      known?: number;
+      attachments?: boolean;
+      /** turn on the signed hello: this device's identity */
+      identity?: Identity;
+      /** what this device decides about someone who wants in (default: allow) */
+      decide?: (p: PeerInfo) => GateDecision;
+    } = {},
+  ) {}
 
   persist: Persist = {
     load: async () => this.state,
@@ -190,9 +203,21 @@ export class Device {
 
   async connect() {
     this.transport = new MemTransport(this.name + '-' + Math.random().toString(36).slice(2, 6), this.hub);
-    this.provider = new RoomProvider(this.engine.doc, this.engine.awareness, this.transport);
+    const id = this.opts.identity;
+    this.provider = new RoomProvider(
+      this.engine.doc,
+      this.engine.awareness,
+      this.transport,
+      id && {
+        room: 'test-room',
+        pub: id.pub,
+        sign: (t) => signText(id.priv, t),
+        profile: () => ({ name: this.name, avatar: '🦊', color: '#0091ff' }),
+        decide: (p) => (this.opts.decide ? this.opts.decide(p) : 'allow'),
+      },
+    );
     this.engine.setNet({
-      peers: () => this.transport.peers(),
+      peers: () => this.provider.allowedPeers(),
       sendWant: (p, h) => this.provider.sendWant(p, h),
       sendBlob: (p, h, d) => this.provider.sendBlob(p, h, d),
     });

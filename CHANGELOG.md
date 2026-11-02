@@ -1,14 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-- Fix: a picture deleted on one device could come back. A second download of the same picture, or a check that started before the delete, could write the file again right after the delete. This showed up as a flaky `pictures` test (about 3 in 10 runs under load, and once on GitHub CI). It now passes 40 of 40 runs under load.
-- Fix: after the sync engine stops, no queued work can run any more (the guard in `queue()` could never trigger).
-- Fix: minimum Obsidian version is now 1.6.6, because the plugin uses `FileManager.trashFile`.
-- Declare `@trystero-p2p/nostr` and `@trystero-p2p/core` as dependencies (they were imported but not listed). Remove the unused `trystero` and `lib0`. Pin the dev tools that used `*`.
-- `npm test` exits cleanly when the tests finish.
+A friendlier way to share: parties, profiles and approval. **Not compatible with 0.1.x**: update every device.
+
+- New party panel (ribbon icon or status bar) showing who is here, who wants to join, what they are editing and friends you partied with before.
+- Profiles: name, emoji picture and color. Your cursor shows your picture and name.
+- Invite links (`obsidian://live-room-sync?code=...`) and a join dialog that accepts a code or a link.
+- Party codes now end in a check letter, so a mistyped code is caught. Older codes still work ("Join anyway").
+- New devices must be allowed (Allow / Block). Devices prove who they are with a signature made from a per-device key, so a name or id cannot be copied. Setting: "Ask before new devices join".
+- Renames are now real renames. An edit made on another device during a rename follows the note to its new name instead of bringing the old note back.
+- Simpler settings page; technical options are under "Advanced". The settings page redraws when the party changes.
+- Status bar reads "Party: ..." and opens the panel when clicked.
+- Saving the sync state is delayed a little longer (2.5 s) to do less work while typing; default file limit is 10 MB on phones.
+- Fix: a picture deleted on one device could come back (three races in the file sync; see the 0.1.x notes below).
+- Fix: after the sync engine stops, no queued work can run any more.
+- Fix: minimum Obsidian version is 1.6.6 (the plugin uses `FileManager.trashFile`).
+- Declare `@trystero-p2p/nostr` and `@trystero-p2p/core` as dependencies; remove the unused `trystero` and `lib0`; pin the dev tools that used `*`.
 - Add CI (type-check, build, smoke test, sync tests) and a tag-triggered release workflow.
-- README: privacy and room-code notes.
+- Known issue: the line under a friend's name can show "Online" instead of "Editing <note>".
 
 ## 0.1.0
 

@@ -7,7 +7,7 @@ import { sha256Hex } from './util';
 
 export type NetworkKind = 'nostr' | 'torrent' | 'mqtt';
 
-const TYPES: MsgType[] = ['sv', 'upd', 'sy', 'aw', 'want', 'blob'];
+const TYPES: MsgType[] = ['hi', 'ok', 'sv', 'upd', 'sy', 'aw', 'want', 'blob'];
 
 const toU8 = (d: unknown): Uint8Array | null => {
   if (d instanceof Uint8Array) return d;
@@ -46,7 +46,7 @@ export class TrysteroTransport implements Transport {
     const join = opts.network === 'torrent' ? joinTorrent : opts.network === 'mqtt' ? joinMqtt : joinNostr;
     const room = join(
       {
-        appId: 'live-room-sync-v1',
+        appId: 'live-room-sync-v2',
         password,
         ...(opts.turn && opts.turn.length ? { turnConfig: opts.turn } : {}),
       },

@@ -1,63 +1,42 @@
-import {
-  App,
-  EventRef,
-  MarkdownView,
-  Modal,
-  Notice,
-  Platform,
-  Plugin,
-  PluginSettingTab,
-  Setting,
-  TFile,
-  normalizePath,
-} from 'obsidian';
+import { EventRef, MarkdownView, Notice, Platform, Plugin, TFile, normalizePath } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
 import { selfId } from '@trystero-p2p/nostr';
 import { SyncEngine, type Persist, type VaultAdapter } from './engine';
-import { RoomProvider } from './provider';
-import { TrysteroTransport, type NetworkKind } from './transport-trystero';
+import { RoomProvider, type GateDecision, type PeerInfo } from './provider';
+import { TrysteroTransport } from './transport-trystero';
 import { CmBinder } from './cm-binder';
-import { generateRoomCode, normalizeRoomCode, sha256Hex, toArrayBuffer, isTextPath } from './util';
-
-interface Settings {
-  roomCode: string;
-  deviceName: string;
-  color: string;
-  liveTyping: boolean;
-  syncAttachments: boolean;
-  maxAttachmentMB: number;
-  excludedFolders: string;
-  network: NetworkKind;
-  turnJson: string;
-  accepted: boolean; // user confirmed they made a backup
-  paused: boolean;
-  metaRoom: string;
-  known: Record<string, { h: string; s: number }>;
-}
-
-const COLORS = ['#e5484d', '#f76b15', '#d6a100', '#30a46c', '#0091ff', '#8e4ec6', '#d6409f', '#12a594'];
+import { createIdentity, signText } from './identity';
+import { defaultSettings, ago, type Settings } from './settings';
+import {
+  FirstRunModal,
+  JoinModal,
+  LiveRoomSettingTab,
+  PartyView,
+  VIEW_TYPE,
+  type Member,
+  type PartyHost,
+  type PartyStatus,
+} from './ui';
+import {
+  INVITE_PROTOCOL,
+  checkRoomCode,
+  codeFromPaste,
+  formatRoomCode,
+  generateRoomCode,
+  inviteLink,
+  isTextPath,
+  normalizeRoomCode,
+  sha256Hex,
+  toArrayBuffer,
+} from './util';
 
 const defaultName = () =>
   Platform.isMacOS ? 'Mac' : Platform.isWin ? 'Windows PC' : Platform.isIosApp ? 'iPhone' : Platform.isAndroidApp ? 'Android' : 'Device';
 
-const DEFAULTS = (): Settings => ({
-  roomCode: '',
-  deviceName: defaultName(),
-  color: COLORS[Math.floor(Math.random() * COLORS.length)],
-  liveTyping: true,
-  syncAttachments: true,
-  maxAttachmentMB: 25,
-  excludedFolders: '',
-  network: 'nostr',
-  turnJson: '',
-  accepted: false,
-  paused: false,
-  metaRoom: '',
-  known: {},
-});
+const GUEST_WINDOW_MS = 3 * 60 * 1000;
 
-export default class LiveRoomSync extends Plugin {
-  settings: Settings = DEFAULTS();
+export default class LiveRoomSync extends Plugin implements PartyHost {
+  settings: Settings = defaultSettings(defaultName(), false);
 
   private engine: SyncEngine | null = null;
   private provider: RoomProvider | null = null;
@@ -69,28 +48,41 @@ export default class LiveRoomSync extends Plugin {
   private lastError = '';
   private logLines: string[] = [];
   private metaTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastFile: string | null = null;
+  private lastSignature = '';
+  private lastTouch = 0;
+  private asked = new Set<string>();
+  /** set by the settings page while it is open, so it can redraw when the party changes */
+  settingsRefresh: (() => void) | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    if (!this.settings.identity) {
+      this.settings.identity = await createIdentity();
+      await this.saveSettings();
+    }
     this.registerEditorExtension(this.binder.extension);
+    this.registerView(VIEW_TYPE, (leaf) => new PartyView(leaf, this));
+    this.addRibbonIcon('users', 'Open party panel', () => void this.openParty());
 
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass('live-room-status');
+    this.statusEl.addClass('mod-clickable');
+    this.statusEl.addEventListener('click', () => void this.openParty());
     this.registerInterval(window.setInterval(() => this.heartbeat(), 1000));
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.heartbeat()));
     this.registerEvent(this.app.workspace.on('layout-change', () => this.heartbeat()));
     this.registerEvent(this.app.workspace.on('file-open', () => this.heartbeat()));
 
-    this.addCommand({
-      id: 'copy-room-code',
-      name: 'Copy room code',
-      callback: () => this.copyCode(),
+    this.registerObsidianProtocolHandler(INVITE_PROTOCOL, (params) => {
+      new JoinModal(this.app, this, params.code ?? '').open();
     });
-    this.addCommand({
-      id: 'reconnect',
-      name: 'Reconnect',
-      callback: () => void this.restart(),
-    });
+
+    this.addCommand({ id: 'open-party', name: 'Open party panel', callback: () => void this.openParty() });
+    this.addCommand({ id: 'copy-invite', name: 'Copy invite link', callback: () => void this.copyInvite() });
+    this.addCommand({ id: 'join-party', name: 'Join a party', callback: () => new JoinModal(this.app, this).open() });
+    this.addCommand({ id: 'copy-room-code', name: 'Copy room code', callback: () => void this.copyCode() });
+    this.addCommand({ id: 'reconnect', name: 'Reconnect', callback: () => void this.restart() });
     this.addCommand({
       id: 'rescan',
       name: 'Check all files now',
@@ -115,7 +107,7 @@ export default class LiveRoomSync extends Plugin {
       },
     });
 
-    this.addSettingTab(new LiveRoomSettingTab(this.app, this));
+    this.addSettingTab(new LiveRoomSettingTab(this.app, this, this, () => void this.openParty()));
 
     this.app.workspace.onLayoutReady(() => void this.startSync());
   }
@@ -127,7 +119,7 @@ export default class LiveRoomSync extends Plugin {
   // ------------------------------------------------------------------ settings
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign(DEFAULTS(), await this.loadData());
+    this.settings = Object.assign(defaultSettings(defaultName(), Platform.isMobile), await this.loadData());
   }
 
   async saveSettings(): Promise<void> {
@@ -204,10 +196,17 @@ export default class LiveRoomSync extends Plugin {
         selfId,
       });
       this.transport = transport;
-      const provider = new RoomProvider(engine.doc, engine.awareness, transport);
+      const id = this.settings.identity!;
+      const provider = new RoomProvider(engine.doc, engine.awareness, transport, {
+        room: roomHash,
+        pub: id.pub,
+        sign: (text) => signText(id.priv, text),
+        profile: () => ({ name: this.settings.deviceName, avatar: this.settings.avatar, color: this.settings.color }),
+        decide: (peer) => this.decide(peer),
+      });
       this.provider = provider;
       engine.setNet({
-        peers: () => transport.peers(),
+        peers: () => provider.allowedPeers(),
         sendWant: (p, h) => provider.sendWant(p, h),
         sendBlob: (p, h, d) => provider.sendBlob(p, h, d),
       });
@@ -218,10 +217,12 @@ export default class LiveRoomSync extends Plugin {
       };
       provider.onPeersChanged = () => {
         engine.onPeersChanged();
+        this.onRoster();
         this.renderStatus();
       };
       provider.onWant = (h, from) => void engine.handleWant(h, from);
       provider.onBlob = (h, d) => void engine.receiveBlob(h, d);
+      engine.awareness.on('change', () => this.refreshViews());
       this.log('info', `joined room via ${this.settings.network}`);
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -230,6 +231,7 @@ export default class LiveRoomSync extends Plugin {
     } finally {
       this.starting = false;
       this.renderStatus();
+      this.refreshViews();
     }
   }
 
@@ -242,6 +244,7 @@ export default class LiveRoomSync extends Plugin {
     this.provider = null;
     this.transport = null;
     this.engine = null;
+    this.lastFile = null;
     try {
       await provider?.destroy();
     } catch (err) {
@@ -253,6 +256,7 @@ export default class LiveRoomSync extends Plugin {
       await this.saveSettings();
     }
     this.renderStatus();
+    this.refreshViews();
   }
 
   private parseTurn() {
@@ -267,12 +271,231 @@ export default class LiveRoomSync extends Plugin {
     }
   }
 
-  private setLocalUser(engine: SyncEngine): void {
-    engine.awareness.setLocalStateField('user', {
-      name: this.settings.deviceName || defaultName(),
-      color: this.settings.color,
-      colorLight: this.settings.color + '33',
+  // ------------------------------------------------------------------ who is allowed in
+
+  /** Decides what to do when a device asks to join. See the README ("Joining and approval"). */
+  private decide(peer: PeerInfo): GateDecision {
+    const known = this.settings.people[peer.id];
+    if (known?.status === 'blocked') return 'block';
+    const guest = Date.now() < this.settings.guestUntil;
+    if (known?.status === 'trusted' || guest || !this.settings.askBeforeJoin) {
+      this.remember(peer, 'trusted');
+      return 'allow';
+    }
+    return 'ask';
+  }
+
+  private remember(peer: { id: string; name: string; avatar: string; color: string }, status: 'trusted' | 'blocked'): void {
+    this.settings.people[peer.id] = {
+      name: peer.name,
+      avatar: peer.avatar,
+      color: peer.color,
+      lastSeen: Date.now(),
+      status,
+    };
+    void this.saveSettings();
+  }
+
+  allow(peerId: string): void {
+    const r = this.provider?.roster().find((x) => x.peerId === peerId);
+    if (r?.info) this.remember(r.info, 'trusted');
+    this.provider?.approve(peerId);
+  }
+
+  block(peerId: string): void {
+    const r = this.provider?.roster().find((x) => x.peerId === peerId);
+    if (r?.info) this.remember(r.info, 'blocked');
+    this.provider?.block(peerId);
+  }
+
+  async forget(id: string): Promise<void> {
+    delete this.settings.people[id];
+    await this.saveSettings();
+    this.refreshViews(true);
+  }
+
+  /** Keep the friends list fresh and tell the person when someone is waiting. */
+  private onRoster(): void {
+    const roster = this.provider?.roster() ?? [];
+    for (const r of roster) {
+      if (r.state === 'pending' && r.info && !this.asked.has(r.peerId)) {
+        this.asked.add(r.peerId);
+        new Notice(`${r.info.avatar} ${r.info.name} wants to join your party. Open the Party panel to allow.`, 10000);
+      }
+      if (r.state === 'allowed' && r.info) this.touch(r.info);
+    }
+    this.refreshViews();
+  }
+
+  private touch(info: { id: string; name: string; avatar: string; color: string }): void {
+    const p = this.settings.people[info.id];
+    if (p?.status === 'blocked') return;
+    if (p && p.name === info.name && p.avatar === info.avatar && p.color === info.color && Date.now() - p.lastSeen < 60_000) return;
+    this.remember(info, 'trusted');
+  }
+
+  // ------------------------------------------------------------------ party actions (used by the UI)
+
+  async startParty(): Promise<void> {
+    this.settings.roomCode = generateRoomCode();
+    this.settings.guestUntil = 0;
+    await this.saveSettings();
+    await this.restart();
+    await this.openParty();
+    new Notice('Party started! Press "Invite friends" to share it.');
+  }
+
+  async joinParty(codeOrLink: string): Promise<void> {
+    const r = checkRoomCode(codeFromPaste(codeOrLink));
+    if (!r.clean) return void new Notice('That does not look like a party code.');
+    this.settings.roomCode = formatRoomCode(r.clean);
+    this.settings.guestUntil = Date.now() + GUEST_WINDOW_MS;
+    await this.saveSettings();
+    await this.restart();
+    await this.openParty();
+  }
+
+  async leaveParty(): Promise<void> {
+    await this.stopSync();
+    this.settings.roomCode = '';
+    this.settings.guestUntil = 0;
+    this.settings.metaRoom = '';
+    this.settings.known = {};
+    await this.saveSettings();
+    this.renderStatus();
+    this.refreshViews(true);
+    new Notice('You left the party. Your notes stay on this device.');
+  }
+
+  async copyInvite(): Promise<void> {
+    if (!this.settings.roomCode) return void new Notice('Start a party first.');
+    await navigator.clipboard.writeText(inviteLink(this.settings.roomCode, this.settings.deviceName));
+    new Notice('Invite link copied. Send it to your friends.');
+  }
+
+  async copyCode(): Promise<void> {
+    if (!this.settings.roomCode) return void new Notice('No party yet.');
+    await navigator.clipboard.writeText(this.settings.roomCode);
+    new Notice('Party code copied. Keep it private.');
+  }
+
+  async setProfile(p: { name: string; avatar: string; color: string }): Promise<void> {
+    this.settings.deviceName = p.name;
+    this.settings.avatar = p.avatar;
+    this.settings.color = p.color;
+    await this.saveSettings();
+    this.updateUser();
+    this.refreshViews(true);
+  }
+
+  async openParty(): Promise<void> {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE)[0];
+    if (!leaf) {
+      const right = ws.getRightLeaf(false);
+      if (!right) return;
+      await right.setViewState({ type: VIEW_TYPE, active: true });
+      leaf = right;
+    }
+    await ws.revealLeaf(leaf);
+    this.refreshViews(true);
+  }
+
+  // ------------------------------------------------------------------ what the panel shows
+
+  members(): Member[] {
+    const s = this.settings;
+    const out: Member[] = [];
+    const awareness = this.engine?.awareness;
+    const live = new Map<string, { name?: string; avatar?: string; color?: string; file?: string }>();
+    if (awareness) {
+      for (const st of awareness.getStates().values()) {
+        const u = (st as { user?: { id?: string; pname?: string; avatar?: string; color?: string; file?: string } }).user;
+        if (u?.id) live.set(u.id, { name: u.pname, avatar: u.avatar, color: u.color, file: u.file });
+      }
+    }
+    const note = (file?: string) => (file ? `Editing ${file}` : 'Online');
+
+    out.push({
+      id: s.identity?.id ?? 'me',
+      name: s.deviceName,
+      avatar: s.avatar,
+      color: s.color,
+      kind: 'me',
+      note: this.lastFile ? `Editing ${this.lastFile}` : 'You',
     });
+
+    const here = new Set<string>();
+    for (const r of this.provider?.roster() ?? []) {
+      if (!r.info) continue;
+      if (r.state === 'allowed') {
+        const l = live.get(r.info.id);
+        here.add(r.info.id);
+        out.push({
+          id: r.info.id,
+          name: l?.name || r.info.name,
+          avatar: l?.avatar || r.info.avatar,
+          color: l?.color || r.info.color,
+          kind: 'here',
+          peerId: r.peerId,
+          note: note(l?.file),
+        });
+      } else if (r.state === 'pending') {
+        out.push({ id: r.info.id, name: r.info.name, avatar: r.info.avatar, color: r.info.color, kind: 'waiting', peerId: r.peerId });
+      }
+    }
+    const now = Date.now();
+    const away = Object.entries(s.people)
+      .filter(([id, p]) => p.status === 'trusted' && !here.has(id) && id !== s.identity?.id)
+      .sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+    for (const [id, p] of away) {
+      out.push({ id, name: p.name, avatar: p.avatar, color: p.color, kind: 'away', note: `Partied together ${ago(p.lastSeen, now)}` });
+    }
+    return out;
+  }
+
+  status(): PartyStatus {
+    const hasRoom = !!normalizeRoomCode(this.settings.roomCode);
+    const here = this.provider?.peerCount() ?? 0;
+    let summary: string;
+    if (!hasRoom) summary = 'Share your notes live';
+    else if (this.settings.paused) summary = 'Paused';
+    else if (this.lastError) summary = 'Could not connect';
+    else if (!this.engine || !this.transport) summary = this.starting ? 'Connecting…' : 'Not connected';
+    else if (here === 0) summary = 'Waiting for friends';
+    else summary = `${here + 1} in the party`;
+    return { hasRoom, paused: this.settings.paused, error: this.lastError, summary };
+  }
+
+  /** Redraw open party panels, but only when something changed. */
+  private refreshViews(force = false): void {
+    const sig = JSON.stringify([this.status(), this.members()]);
+    if (!force && sig === this.lastSignature) return;
+    this.lastSignature = sig;
+    this.settingsRefresh?.();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      const v = leaf.view;
+      if (v instanceof PartyView) v.render();
+    }
+  }
+
+  // ------------------------------------------------------------------ you in the room
+
+  private userState(file: string | null) {
+    const s = this.settings;
+    return {
+      id: s.identity?.id,
+      pname: s.deviceName,
+      name: `${s.avatar} ${s.deviceName}`, // what shows next to your cursor
+      avatar: s.avatar,
+      color: s.color,
+      colorLight: s.color + '33',
+      file: s.showActivity ? file : null,
+    };
+  }
+
+  private setLocalUser(engine: SyncEngine): void {
+    engine.awareness.setLocalStateField('user', this.userState(this.lastFile));
   }
 
   updateUser(): void {
@@ -297,6 +520,20 @@ export default class LiveRoomSync extends Plugin {
   private heartbeat(): void {
     this.renderStatus();
     const engine = this.engine;
+    if (engine) {
+      // tell the party which note you are in (just its name)
+      const active = this.app.workspace.getActiveFile();
+      const name = active && isTextPath(active.path) && engine.shouldSync(active.path) ? active.basename : null;
+      if (name !== this.lastFile) {
+        this.lastFile = name;
+        this.updateUser();
+      }
+      if (Date.now() - this.lastTouch > 30_000) {
+        this.lastTouch = Date.now();
+        for (const r of this.provider?.roster() ?? []) if (r.state === 'allowed' && r.info) this.touch(r.info);
+      }
+    }
+    this.refreshViews();
     if (!engine || !this.settings.liveTyping || !engine.isReady()) {
       this.binder.unbindAll();
       return;
@@ -321,19 +558,18 @@ export default class LiveRoomSync extends Plugin {
     if (!el) return;
     let text: string;
     let title: string;
-    const peers = this.transport?.peers().length ?? 0;
-    if (this.settings.paused) [text, title] = ['Live: paused', 'Syncing is paused'];
-    else if (!normalizeRoomCode(this.settings.roomCode)) [text, title] = ['Live: no room', 'Open the plugin settings and create or paste a room code'];
-    else if (this.lastError) [text, title] = ['Live: error', this.lastError];
+    const peers = this.provider?.peerCount() ?? 0;
+    const waiting = (this.provider?.roster() ?? []).filter((r) => r.state === 'pending').length;
+    if (this.settings.paused) [text, title] = ['Party: paused', 'Syncing is paused'];
+    else if (!normalizeRoomCode(this.settings.roomCode)) [text, title] = ['Party: none', 'Click to start or join a party'];
+    else if (this.lastError) [text, title] = ['Party: error', this.lastError];
     else if (!this.engine || !this.transport) {
-      [text, title] = this.starting ? ['Live: starting', 'Starting'] : ['Live: off', 'Not connected. Use the command "Live Room Sync: Reconnect".'];
-    }
-    else if (peers === 0) [text, title] = ['Live: alone', 'Waiting for another device to open Obsidian with the same room code'];
+      [text, title] = this.starting ? ['Party: starting', 'Starting'] : ['Party: off', 'Not connected. Use the command "Live Room Sync: Reconnect".'];
+    } else if (peers === 0) [text, title] = [waiting ? `Party: ${waiting} waiting` : 'Party: just you', 'Waiting for friends. Click to open the party panel.'];
     else {
       const s = this.engine.status();
-      const live = this.binder.count();
-      text = `Live: ${peers + 1} here${s.pending ? ' · syncing' : ''}`;
-      title = `${peers + 1} devices in the room, ${s.files} files shared${live ? `, ${live} open note(s) typing live` : ''}`;
+      text = `Party: ${peers + 1} here${s.pending ? ' · syncing' : ''}${waiting ? ` · ${waiting} waiting` : ''}`;
+      title = `${peers + 1} people in the party, ${s.files} files shared. Click to open the party panel.`;
     }
     if (el.getText() !== text) el.setText(text);
     el.setAttr('title', title);
@@ -344,17 +580,6 @@ export default class LiveRoomSync extends Plugin {
     this.logLines.push(line);
     if (this.logLines.length > 200) this.logLines.splice(0, this.logLines.length - 200);
     if (level !== 'info') console.warn('[live-room]', msg);
-  }
-
-  async copyCode(): Promise<void> {
-    if (!this.settings.roomCode) return void new Notice('No room code yet.');
-    await navigator.clipboard.writeText(this.settings.roomCode);
-    new Notice('Room code copied.');
-  }
-
-  async newRoom(): Promise<void> {
-    this.settings.roomCode = generateRoomCode();
-    await this.saveSettings();
   }
 
   // ------------------------------------------------------------------ vault glue
@@ -425,182 +650,5 @@ export default class LiveRoomSync extends Plugin {
         await adapter.writeBinary(path, toArrayBuffer(data));
       },
     };
-  }
-}
-
-// -------------------------------------------------------------------- UI
-
-class FirstRunModal extends Modal {
-  constructor(
-    app: App,
-    private onOk: () => void | Promise<void>,
-  ) {
-    super(app);
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.createEl('h2', { text: 'Before the first sync' });
-    contentEl.createEl('p', {
-      text: 'Live Room Sync will create, change and move notes in this vault to match the other devices in your room.',
-    });
-    contentEl.createEl('p', {
-      text: 'Please make a copy of your vault folder first (copy and paste the folder somewhere safe). This plugin is new and a backup keeps your notes safe.',
-    });
-    contentEl.createEl('p', {
-      text: 'If a note differs between devices, both versions are kept: one as a new note named "(conflict ...)".',
-    });
-    new Setting(contentEl)
-      .addButton((b) =>
-        b
-          .setButtonText('I made a backup, start')
-          .setCta()
-          .onClick(async () => {
-            this.close();
-            await this.onOk();
-          }),
-      )
-      .addButton((b) => b.setButtonText('Not now').onClick(() => this.close()));
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-class LiveRoomSettingTab extends PluginSettingTab {
-  constructor(
-    app: App,
-    private plugin: LiveRoomSync,
-  ) {
-    super(app, plugin);
-  }
-
-  display(): void {
-    const { containerEl } = this;
-    const s = this.plugin.settings;
-    containerEl.empty();
-
-    containerEl.createEl('p', {
-      text: 'Everyone (and every device) that uses the same room code shares this whole vault. Notes update live while you type. Devices connect straight to each other, so at least two of them must be open at the same time to sync.',
-    });
-
-    new Setting(containerEl)
-      .setName('Room code')
-      .setDesc('Create a new room on your first device, then paste the same code on every other device. Keep it private: anyone with the code can read and change your notes.')
-      .addText((t) => {
-        t.setPlaceholder('XXXXX-XXXXX-XXXXX-XXXXX')
-          .setValue(s.roomCode)
-          .onChange(async (v) => {
-            s.roomCode = v.trim();
-            await this.plugin.saveSettings();
-          });
-        t.inputEl.addClass('live-room-code');
-        t.inputEl.addEventListener('blur', () => void this.plugin.restart());
-      })
-      .addButton((b) =>
-        b.setButtonText('Create new').onClick(async () => {
-          await this.plugin.newRoom();
-          await this.plugin.restart();
-          this.display();
-        }),
-      )
-      .addButton((b) => b.setButtonText('Copy').onClick(() => void this.plugin.copyCode()));
-
-    new Setting(containerEl)
-      .setName('Device name')
-      .setDesc('Shown next to your cursor for other people.')
-      .addText((t) =>
-        t.setValue(s.deviceName).onChange(async (v) => {
-          s.deviceName = v;
-          await this.plugin.saveSettings();
-          this.plugin.updateUser();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName('Cursor color')
-      .addColorPicker((c) =>
-        c.setValue(s.color).onChange(async (v) => {
-          s.color = v;
-          await this.plugin.saveSettings();
-          this.plugin.updateUser();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName('Live typing')
-      .setDesc('See other people type and move their cursor in the open note.')
-      .addToggle((t) =>
-        t.setValue(s.liveTyping).onChange(async (v) => {
-          s.liveTyping = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName('Sync pictures and other files')
-      .setDesc('Copies attachments (images, PDFs, videos...) between devices. Restarts syncing when changed.')
-      .addToggle((t) =>
-        t.setValue(s.syncAttachments).onChange(async (v) => {
-          s.syncAttachments = v;
-          await this.plugin.saveSettings();
-          await this.plugin.restart();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName('Biggest attachment (MB)')
-      .setDesc('Bigger files are skipped.')
-      .addText((t) =>
-        t.setValue(String(s.maxAttachmentMB)).onChange(async (v) => {
-          const n = Number(v);
-          if (Number.isFinite(n) && n > 0) {
-            s.maxAttachmentMB = n;
-            await this.plugin.saveSettings();
-          }
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName('Folders not to sync')
-      .setDesc('One folder per line. Hidden folders and the .obsidian folder are never synced.')
-      .addTextArea((t) =>
-        t.setValue(s.excludedFolders).onChange(async (v) => {
-          s.excludedFolders = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    containerEl.createEl('h3', { text: 'If connecting does not work' });
-
-    new Setting(containerEl)
-      .setName('Network')
-      .setDesc('How devices find each other. All devices in a room must use the same one. Try another if devices cannot see each other.')
-      .addDropdown((d) =>
-        d
-          .addOptions({ nostr: 'Nostr (default)', torrent: 'BitTorrent trackers', mqtt: 'MQTT' })
-          .setValue(s.network)
-          .onChange(async (v) => {
-            s.network = v as NetworkKind;
-            await this.plugin.saveSettings();
-            await this.plugin.restart();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('TURN server (advanced, optional)')
-      .setDesc('JSON like [{"urls":"turn:example.com:3478","username":"u","credential":"p"}]. Only needed on very strict networks.')
-      .addTextArea((t) =>
-        t.setValue(s.turnJson).onChange(async (v) => {
-          s.turnJson = v;
-          await this.plugin.saveSettings();
-        }),
-      )
-      .addButton((b) => b.setButtonText('Apply').onClick(() => void this.plugin.restart()));
-
-    new Setting(containerEl)
-      .setName('Reconnect')
-      .addButton((b) => b.setButtonText('Reconnect now').onClick(() => void this.plugin.restart()));
   }
 }

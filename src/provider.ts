@@ -5,13 +5,23 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness';
+import { idOf, publicPart, verifyText } from './identity';
 
 /** Origin used for changes that came from another device. */
 export const remoteOrigin = (peer: string) => ({ peer });
 export const isRemoteOrigin = (o: unknown): o is { peer: string } =>
   typeof o === 'object' && o !== null && 'peer' in (o as object);
 
-export type MsgType = 'sv' | 'upd' | 'sy' | 'aw' | 'want' | 'blob';
+/**
+ * hi   = who I am (name, picture, signed proof of my device id)
+ * ok   = I have allowed you in
+ * sv   = my state vector (what I already have)
+ * upd  = changes you are missing
+ * sy   = I sent you everything I had
+ * aw   = cursors and who is where
+ * want / blob = pictures and other files
+ */
+export type MsgType = 'hi' | 'ok' | 'sv' | 'upd' | 'sy' | 'aw' | 'want' | 'blob';
 
 /** Minimal "talk to the other devices in the room" interface. */
 export interface Transport {
@@ -23,6 +33,27 @@ export interface Transport {
   onPeerLeave: ((peerId: string) => void) | null;
   leave(): Promise<void> | void;
 }
+
+export interface PeerInfo {
+  id: string;
+  name: string;
+  avatar: string;
+  color: string;
+}
+
+export type GateDecision = 'allow' | 'ask' | 'block';
+
+/** Joining: who may come in. Without these options the provider lets every device in. */
+export interface JoinOptions {
+  /** Same on every device in the room; part of what a device signs. */
+  room: string;
+  pub: JsonWebKey;
+  sign(text: string): Promise<string>;
+  profile(): { name: string; avatar: string; color: string };
+  decide(peer: PeerInfo): GateDecision;
+}
+
+export const helloText = (room: string, peerId: string) => `live-room-sync/hi/${room}/${peerId}`;
 
 const HASH_LEN = 64;
 const ascii = (s: string) => {
@@ -36,10 +67,24 @@ const fromAscii = (u: Uint8Array) => {
   return s;
 };
 
+type PeerState = 'new' | 'pending' | 'allowed' | 'blocked';
+interface PeerRec {
+  state: PeerState;
+  info?: PeerInfo;
+  helloSent: boolean;
+}
+
+export interface RosterPeer {
+  peerId: string;
+  state: PeerState;
+  info?: PeerInfo;
+}
+
 /** Keeps one Y.Doc and one Awareness in sync with every device that is in the same room. */
 export class RoomProvider {
   readonly syncedPeers = new Set<string>();
   private peerClients = new Map<string, Set<number>>();
+  private recs = new Map<string, PeerRec>();
 
   onSynced: (() => void) | null = null;
   onPeersChanged: (() => void) | null = null;
@@ -50,6 +95,7 @@ export class RoomProvider {
     readonly doc: Y.Doc,
     readonly awareness: Awareness,
     readonly transport: Transport,
+    private join?: JoinOptions,
   ) {
     doc.on('update', this.handleDocUpdate);
     awareness.on('update', this.handleAwarenessUpdate);
@@ -59,8 +105,31 @@ export class RoomProvider {
     for (const p of transport.peers()) this.handleJoin(p);
   }
 
+  /** Devices that may exchange notes with us. */
+  allowedPeers(): string[] {
+    const out: string[] = [];
+    for (const [p, r] of this.recs) if (r.state === 'allowed') out.push(p);
+    return out;
+  }
+
   peerCount(): number {
-    return this.transport.peers().length;
+    return this.allowedPeers().length;
+  }
+
+  roster(): RosterPeer[] {
+    return [...this.recs].map(([peerId, r]) => ({ peerId, state: r.state, info: r.info }));
+  }
+
+  approve(peerId: string): void {
+    const r = this.recs.get(peerId);
+    if (r && r.state === 'pending') this.allow(peerId, r);
+  }
+
+  block(peerId: string): void {
+    const r = this.recs.get(peerId);
+    if (!r) return;
+    r.state = 'blocked';
+    this.onPeersChanged?.();
   }
 
   sendWant(peer: string, hash: string): void {
@@ -83,14 +152,82 @@ export class RoomProvider {
     await this.transport.leave();
   }
 
-  private handleJoin = (peer: string) => {
+  // ------------------------------------------------------------------ joining
+
+  private rec(peer: string): PeerRec {
+    let r = this.recs.get(peer);
+    if (!r) {
+      r = { state: 'new', helloSent: false };
+      this.recs.set(peer, r);
+      if (this.join) void this.sendHello(peer, r);
+      else this.allow(peer, r);
+    }
+    return r;
+  }
+
+  private async sendHello(peer: string, r: PeerRec): Promise<void> {
+    const j = this.join;
+    if (!j || r.helloSent) return;
+    r.helloSent = true;
+    try {
+      const sig = await j.sign(helloText(j.room, this.transport.selfId));
+      const body = JSON.stringify({ pub: publicPart(j.pub), sig, ...j.profile() });
+      this.transport.send('hi', new TextEncoder().encode(body), peer);
+    } catch (err) {
+      console.error('[live-room] could not send hello', err);
+    }
+  }
+
+  private async handleHello(from: string, data: Uint8Array): Promise<void> {
+    const j = this.join;
+    const r = this.rec(from);
+    if (!j || r.state !== 'new') return;
+    try {
+      const m = JSON.parse(new TextDecoder().decode(data)) as {
+        pub: JsonWebKey;
+        sig: string;
+        name?: string;
+        avatar?: string;
+        color?: string;
+      };
+      if (!(await verifyText(m.pub, m.sig, helloText(j.room, from)))) {
+        r.state = 'blocked';
+        return;
+      }
+      const info: PeerInfo = {
+        id: await idOf(m.pub),
+        name: String(m.name ?? 'Someone').slice(0, 40),
+        avatar: String(m.avatar ?? '🙂').slice(0, 8),
+        color: /^#[0-9a-fA-F]{6}$/.test(String(m.color)) ? String(m.color) : '#0091ff',
+      };
+      r.info = info;
+      const d = j.decide(info);
+      if (d === 'allow') this.allow(from, r);
+      else if (d === 'block') r.state = 'blocked';
+      else r.state = 'pending';
+    } catch {
+      r.state = 'blocked';
+    }
+    this.onPeersChanged?.();
+  }
+
+  /** Start sharing with this device. Both sides must have allowed each other before notes flow. */
+  private allow(peer: string, r: PeerRec): void {
+    r.state = 'allowed';
+    if (this.join) this.transport.send('ok', new Uint8Array([1]), peer);
     this.transport.send('sv', Y.encodeStateVector(this.doc), peer);
     const ids = [...this.awareness.getStates().keys()];
     if (ids.length) this.transport.send('aw', encodeAwarenessUpdate(this.awareness, ids), peer);
     this.onPeersChanged?.();
+  }
+
+  private handleJoin = (peer: string) => {
+    this.rec(peer);
+    this.onPeersChanged?.();
   };
 
   private handleLeave = (peer: string) => {
+    this.recs.delete(peer);
     this.syncedPeers.delete(peer);
     const ids = this.peerClients.get(peer);
     this.peerClients.delete(peer);
@@ -98,9 +235,20 @@ export class RoomProvider {
     this.onPeersChanged?.();
   };
 
+  // ------------------------------------------------------------------ messages
+
   private handleMessage = (type: MsgType, data: Uint8Array, from: string) => {
     try {
+      if (type === 'hi') {
+        void this.handleHello(from, data);
+        return;
+      }
+      const r = this.rec(from); // a message can arrive before we heard about the peer
+      if (r.state !== 'allowed') return; // not let in (yet): ignore everything else
       switch (type) {
+        case 'ok':
+          this.transport.send('sv', Y.encodeStateVector(this.doc), from);
+          break;
         case 'sv':
           this.transport.send('upd', Y.encodeStateAsUpdate(this.doc, data), from);
           this.transport.send('sy', new Uint8Array([1]), from);
@@ -131,14 +279,10 @@ export class RoomProvider {
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown) => {
-    // Forward to everyone except the device it came from (this also works when two
+    // Forward to everyone allowed except the device it came from (this also works when two
     // devices cannot reach each other directly but both reach a third one).
     const skip = isRemoteOrigin(origin) ? origin.peer : null;
-    if (skip === null) {
-      this.transport.send('upd', update);
-      return;
-    }
-    for (const p of this.transport.peers()) if (p !== skip) this.transport.send('upd', update, p);
+    for (const p of this.allowedPeers()) if (p !== skip) this.transport.send('upd', update, p);
   };
 
   private handleAwarenessUpdate = (
@@ -152,6 +296,8 @@ export class RoomProvider {
       return;
     }
     const changed = change.added.concat(change.updated, change.removed);
-    if (changed.length) this.transport.send('aw', encodeAwarenessUpdate(this.awareness, changed));
+    if (!changed.length) return;
+    const payload = encodeAwarenessUpdate(this.awareness, changed);
+    for (const p of this.allowedPeers()) this.transport.send('aw', payload, p);
   };
 }

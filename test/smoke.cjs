@@ -14,7 +14,7 @@ class TFile extends TAbstractFile {}
 const mkFile = (p, text) => Object.assign(new TFile(), { path: p, stat: { size: text.length }, text });
 const vfiles = new Map([['a.md', mkFile('a.md', 'hello')], ['b/c.md', mkFile('b/c.md', 'see')]]);
 const store = {};
-const el = () => { const e = { setText(t) { e.t = t; }, getText() { return e.t; }, setAttr() {}, addClass() {}, empty() {}, createEl() { return el(); } }; return e; };
+const el = () => { const e = { addEventListener() {}, setText(t) { e.t = t; }, getText() { return e.t; }, setAttr() {}, addClass() {}, empty() {}, createEl() { return el(); } }; return e; };
 let statusEl;
 const mock = {
   Plugin: class {
@@ -31,17 +31,17 @@ const mock = {
           modify: async (f, d) => { f.text = d; }, create: async (p, d) => { vfiles.set(p, mkFile(p, d)); },
           createFolder: async () => {}, on: (n, cb) => ({ n, cb }), offref: () => {},
         },
-        workspace: { on: (n, cb) => ({ n, cb }), onLayoutReady: (cb) => cb(), getLeavesOfType: () => [] },
+        workspace: { on: (n, cb) => ({ n, cb }), onLayoutReady: (cb) => cb(), getLeavesOfType: () => [], getActiveFile: () => null, getActiveViewOfType: () => null, getRightLeaf: () => null },
         fileManager: { trashFile: async () => {} },
       };
     }
-    async loadData() { return this.saved ?? { roomCode: 'ABCDE-FGHJK-LMNPQ-RSTUV', accepted: true, network: 'nostr' }; }
+    async loadData() { return this.saved ?? { roomCode: 'ABCDE-FGHJK-LMNPQ-RSTUV', accepted: true, network: 'nostr', people: {} }; }
     async saveData(d) { this.saved = d; }
     registerEditorExtension() {} addStatusBarItem() { statusEl = el(); return statusEl; }
-    registerInterval() {} registerEvent() {} addCommand(c) { (this.cmds ||= []).push(c.id); } addSettingTab() {}
+    registerInterval() {} registerEvent() {} registerView() {} addRibbonIcon() {} registerObsidianProtocolHandler() {} addCommand(c) { (this.cmds ||= []).push(c.id); } addSettingTab() {}
   },
   Notice: class { constructor(m) { console.log('NOTICE', m); } },
-  Modal: class {}, PluginSettingTab: class {}, Setting: class {}, MarkdownView: class {}, TFile, TAbstractFile,
+  Modal: class {}, ItemView: class {}, setIcon() {}, PluginSettingTab: class {}, Setting: class {}, MarkdownView: class {}, TFile, TAbstractFile,
   Platform: { isMacOS: false, isWin: true, isIosApp: false, isAndroidApp: false },
   normalizePath: (p) => p.replace(/\\/g, '/'),
 };
@@ -52,6 +52,8 @@ const Plugin = require(path.resolve(__dirname, '../main.js')).default;
   const p = new Plugin();
   await p.onload();
   console.log('commands:', p.cmds.join(','));
+  console.log('identity made:', !!(p.settings.identity && p.settings.identity.id && p.settings.identity.priv));
+  console.log('members at start:', JSON.stringify(p.members().map((m) => m.kind)));
   await new Promise((r) => setTimeout(r, 2500));
   console.log('status:', statusEl.t);
   console.log('log:', p.logLines.join(' | '));
