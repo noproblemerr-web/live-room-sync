@@ -154,6 +154,20 @@
 .lrs-card.lrs-ask .lrs-buttons { width: 100%; justify-content: flex-end; }
 .lrs-text { flex: 1; min-width: 0; }
 .lrs-name { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrs-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 2px solid var(--lrs-edge);
+  background: var(--lrs-accent);
+  color: #04060a;
+  font-family: var(--lrs-title);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
 .lrs-note { font-size: 13px; color: var(--lrs-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Square picture with a colored frame and a square "online" dot */
@@ -330,3 +344,12 @@
 .lrs-banner .lrs-hero { position: relative; border: 0; background: none; }
 .lrs-advanced { margin-top: 18px; }
 .lrs-advanced > summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+
+/* the note in the join dialog about what stays private */
+.lrs-modal .lrs-note-box {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 2px solid var(--lrs-accent-dark);
+  background: rgba(93, 211, 158, 0.08);
+  font-size: 14px;
+}

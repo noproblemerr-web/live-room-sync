@@ -61,6 +61,13 @@ export interface EngineOptions {
   onSnapshot?: (path: string, text: string, reason: 'remote' | 'merge') => void;
   log?: (level: 'info' | 'warn' | 'error', msg: string) => void;
   notify?: (msg: string) => void;
+  /**
+   * Files that were already in this vault when it joined someone else's party. They stay private:
+   * they are never shared, so a joining vault cannot push its old notes into the host's vault.
+   */
+  localOnly?: string[];
+  /** the list of private files changed, so it can be saved */
+  onLocalOnlyChange?: (paths: string[]) => void;
   now?: () => Date;
 }
 
@@ -100,6 +107,7 @@ export class SyncEngine {
   private base = new Map<string, string>();
   /** the last text this device and the room agreed on; used to carry edits across a rename */
   private agreed = new Map<string, string>();
+  private localOnly: Set<string>;
   private known = new Map<string, BinEntry>();
   private dirty = new Set<string>();
   private deletedWhileDirty = new Set<string>();
@@ -120,6 +128,7 @@ export class SyncEngine {
     this.files = this.doc.getMap<Y.Text>('files');
     this.bins = this.doc.getMap<BinEntry>('bins');
     this.moved = this.doc.getMap<string>('moved');
+    this.localOnly = new Set(opts.localOnly ?? []);
   }
 
   // ---------------------------------------------------------------- setup
@@ -209,7 +218,22 @@ export class SyncEngine {
 
   shouldSync(path: string): boolean {
     if (isExcludedPath(path, this.opts.configDir, this.opts.excluded)) return false;
+    if (this.isLocalOnly(path)) return false;
     return isTextPath(path) || this.opts.syncAttachments;
+  }
+
+  /** A file that was here before joining and is not part of the party's notes (yet). */
+  private isLocalOnly(path: string): boolean {
+    return this.localOnly.has(path) && !this.files.has(path) && !this.bins.has(path);
+  }
+
+  private localOnlyChanged(): void {
+    this.opts.onLocalOnlyChange?.([...this.localOnly]);
+  }
+
+  /** The party now has this file, so it is shared like any other. */
+  private releaseIfShared(path: string): void {
+    if ((this.files.has(path) || this.bins.has(path)) && this.localOnly.delete(path)) this.localOnlyChanged();
   }
 
   hasText(path: string): boolean {
@@ -278,6 +302,11 @@ export class SyncEngine {
   onVaultDelete(path: string): void {
     if (!this.started || this.stopped) return;
     if (this.expectDelete.delete(path)) return;
+    if (this.isLocalOnly(path)) {
+      this.localOnly.delete(path); // a private file went away: nothing to share
+      this.localOnlyChanged();
+      return;
+    }
     this.base.delete(path);
     this.agreed.delete(path);
     this.hashCache.delete(path);
@@ -293,6 +322,13 @@ export class SyncEngine {
 
   onVaultRename(newPath: string, oldPath: string): void {
     if (!this.started || this.stopped) return;
+    if (this.isLocalOnly(oldPath)) {
+      // a private file stays private under its new name
+      this.localOnly.delete(oldPath);
+      this.localOnly.add(newPath);
+      this.localOnlyChanged();
+      return;
+    }
     const movable = this.ready && this.shouldSync(newPath) && this.shouldSync(oldPath);
     const text = this.files.get(oldPath);
     const bin = this.bins.get(oldPath);
@@ -467,6 +503,11 @@ export class SyncEngine {
 
   /** Make disk and shared text agree, without ever dropping someone's edit. */
   private async reconcileText(path: string): Promise<void> {
+    await this.reconcileTextNow(path);
+    this.releaseIfShared(path);
+  }
+
+  private async reconcileTextNow(path: string): Promise<void> {
     if (!this.shouldSync(path)) return;
     const ytext = this.files.get(path);
     if (!ytext) return this.handleRemoteDelete(path);
@@ -567,6 +608,11 @@ export class SyncEngine {
   // ---------------------------------------------------------------- attachments
 
   private async reconcileBinary(path: string, knownSize?: number): Promise<void> {
+    await this.reconcileBinaryNow(path, knownSize);
+    this.releaseIfShared(path);
+  }
+
+  private async reconcileBinaryNow(path: string, knownSize?: number): Promise<void> {
     if (!this.opts.syncAttachments || !this.shouldSync(path)) return;
     const size = knownSize ?? (await this.vault.size(path));
 
@@ -697,6 +743,11 @@ export class SyncEngine {
     let n = 0;
     let target = conflictCandidate(path, this.opts.deviceName, when, n);
     while (await this.vault.exists(target)) target = conflictCandidate(path, this.opts.deviceName, when, ++n);
+    if (this.localOnly.has(path)) {
+      // the copy holds this device's private version, so it stays private too
+      this.localOnly.add(target);
+      this.localOnlyChanged();
+    }
     if (typeof content === 'string') await this.vault.writeText(target, content);
     else await this.vault.writeBinary(target, content);
     this.opts.notify?.(`Two versions of "${path}" met. Your copy was kept as "${target}".`);

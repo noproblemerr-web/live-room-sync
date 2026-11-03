@@ -1,7 +1,7 @@
 {
   "id": "live-room-sync",
   "name": "Live Room Sync",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "minAppVersion": "1.7.2",
   "description": "Party up with friends and share a vault live. Start a party, send an invite and edit the same notes together with named cursors. No server needed.",
   "author": "noproblemerr-web",

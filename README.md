@@ -1,12 +1,12 @@
 # Live Room Sync
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.4.0-informational)
+![Version](https://img.shields.io/badge/version-0.5.0-informational)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7c3aed)
 
 An [Obsidian](https://obsidian.md) plugin that lets you **party up** with friends (or your own devices) and share a whole vault live, with **Google-Docs-style typing**. Start a party, send an invite link, and your friends show up with their name and picture. No account, no server to run, no domain.
 
-> **Status: early (v0.4.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
+> **Status: early (v0.5.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
 
 ## Screenshots
 
@@ -48,6 +48,7 @@ A dark, blocky pixel look with slow-moving contour lines behind everything. Thes
 ## What it does
 
 - **A look of its own.** A dark, blocky pixel style with slow-moving contour lines, pixel fonts, square pictures and chunky buttons. It's all CSS, with no extra code running. The motion stops if your system asks for less motion.
+- **Your vault leads.** The person who starts the party is the **host**. A vault that joins keeps the notes it already had **private**: they are never sent to the party, so they can't pile into the host's vault or replace anything in it. The joining friend gets the host's notes, and once the host presses Allow they can edit them and add new notes. If both have a note with the same name, the host's version wins and the guest's is kept as a private copy.
 - **Party panel.** See who is here, who wants to join, what they are working on, and friends you have partied with before ("Partied together 4d ago").
 - **Your profile.** Pick a name, an emoji picture and a color. Friends see them, and your cursor shows as `🐼 Bo` in the note.
 - **Easy invites.** One link or one code. Clicking an invite link opens Obsidian and the join dialog.
@@ -92,7 +93,7 @@ Then copy `main.js`, `manifest.json` and `styles.css` into `<your vault>/.obsidi
 5. **You:** when "Bo wants to join" appears, press **Allow**. Your notes appear on their side.
 6. Open the same note on both and type. Text and named cursors show up on the other side.
 
-Friends should start with an **empty vault** (or a copy of yours) and join the party. The first sync merges what each device has.
+A friend can join with a vault that already has notes. Those notes **stay private on their side** and are never sent to you. They just get your notes added to their vault, so an empty or brand-new vault keeps things tidiest.
 
 ## Joining and approval
 
@@ -102,6 +103,15 @@ Friends should start with an **empty vault** (or a copy of yours) and join the p
 - The device that just joined with a code trusts the devices it meets for the first 3 minutes, so you only have to approve in one direction.
 - Turn off **Ask before new devices join** (Settings → Advanced) if you want anyone with the code to come straight in.
 - Approval is tied to a key pair made on each device, not to a name. Changing your name does not give anyone a way to impersonate you.
+
+## Host and guests
+
+- **Host.** Whoever presses **Start a party**. The panel marks them with a **Host** tag. Their vault leads: it is the party's version of the notes.
+- **Guest.** Anyone who joins with the code or link. When they join, the notes already in their vault are marked private and never shared. The join dialog tells them how many files that is.
+- **After joining**, a guest gets the host's notes, can edit them (once allowed), and any note they create or change in a shared note is shared. Notes they had before stay private, even if they edit, rename or delete them.
+- **Same name on both sides.** The host's note wins in the guest's vault, and the guest's own version is kept next to it as a `(conflict ...)` copy that stays private.
+- **If a guest leaves**, everything goes back to a normal vault. The notes they received stay on their device.
+- **It's on the guest's side.** The "stay private" rule is kept by the joining person's copy of the plugin. A changed copy could ignore it, which is one more reason to Allow only people you trust. If a guest runs an older version (before 0.5.0), their old notes are still shared, so ask everyone to update.
 
 ## How it works
 
@@ -167,7 +177,7 @@ Click it to open the party panel.
 
 - **Two devices must be online at the same time to sync.** There is no always-on server. To get "always on", leave one computer running with Obsidian open on the vault.
 - **Group size.** Every device connects directly to every other (a mesh). It is meant for **a handful of people (about 5)**. It has only been tried with up to 3 devices.
-- **Anyone you allow can read, edit and delete the whole vault.** Treat the party code like a password. To lock someone out, leave, start a new party, and invite only the people you still trust. People you removed keep their copy.
+- **Anyone you allow can read, edit and delete the notes you share.** Treat the party code like a password. To lock someone out, leave, start a new party, and invite only the people you still trust. People you removed keep their copy.
 - **Privacy.** Devices connect directly over WebRTC, so the devices in a party can see each other's IP addresses, and the public STUN servers see them too. The public relay only sees a hashed room name and encrypted hello messages, plus when you connect.
 - **Where the party code lives.** It is saved in plain text in `<vault>/.obsidian/plugins/live-room-sync/data.json`, together with your device key. This plugin never syncs that folder, but if your vault folder is backed up or shared by iCloud, Dropbox or git, they go with it. Keep that folder out of anything public.
 - **Public relays are free and can be flaky.** If devices cannot see each other, switch **Network** to another option on **all** devices, or press **Reconnect**.

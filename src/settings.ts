@@ -15,6 +15,13 @@ export interface Person {
 
 export interface Settings {
   roomCode: string;
+  /**
+   * host = you started this party and your vault leads it. guest = you joined someone else's, so the
+   * notes already in your vault stay private (see localOnly).
+   */
+  role: 'host' | 'guest';
+  /** Notes that were in this vault when you joined as a guest. They are never shared. */
+  localOnly: string[];
   /** Your name in the party (kept as "deviceName" so older settings still load). */
   deviceName: string;
   avatar: string;
@@ -45,6 +52,8 @@ const pick = <T>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
 
 export const defaultSettings = (name: string, mobile: boolean): Settings => ({
   roomCode: '',
+  role: 'host',
+  localOnly: [],
   deviceName: name,
   avatar: pick(AVATARS),
   color: pick(COLORS),

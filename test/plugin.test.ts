@@ -55,14 +55,18 @@ test('start a party, join with the invite, allow, and the notes arrive', async (
   const ann = await device(hub, 'Ann', '🦊');
   const bo = await device(hub, 'Bo', '🐼');
   ann.vault.files.set('Welcome.md', '# Weekend plan\n\n- one\n');
+  bo.vault.files.set('Bo old.md', 'notes Bo already had'); // must never reach Ann
 
   await ann.startParty();
+  assert.equal(ann.settings.role, 'host');
   assert.equal(checkRoomCode(ann.settings.roomCode).status, 'ok', 'a new party gets a good code');
   assert.deepEqual(ann.members().map((m) => m.kind), ['me']);
 
   // Bo joins from the invite link, like clicking it
   await bo.joinParty(inviteLink(ann.settings.roomCode, 'Ann'));
   assert.equal(bo.settings.roomCode.replace(/-/g, ''), ann.settings.roomCode.replace(/-/g, ''));
+  assert.equal(bo.settings.role, 'guest', 'joining makes you a guest');
+  assert.deepEqual(bo.settings.localOnly, ['Bo old.md'], 'what Bo already had stays private');
 
   // Ann sees the request and nothing has been shared yet
   await waitFor(() => ann.members().some((m) => m.kind === 'waiting'), 'request shows up', 15000);
@@ -74,6 +78,12 @@ test('start a party, join with the invite, allow, and the notes arrive', async (
 
   ann.allow(waiting.peerId!);
   await waitFor(() => bo.vault.files.get('Welcome.md') === '# Weekend plan\n\n- one\n', 'note arrives', 20000);
+
+  // Ann leads: the notes Bo already had never reach her vault
+  await sleep(500);
+  assert.equal(ann.vault.files.has('Bo old.md'), false, 'a joining vault cannot push its old notes into the host\'s');
+  await waitFor(() => bo.members().find((m) => m.name === 'Ann')?.host === true, 'Bo sees Ann as the host', 8000);
+  assert.equal(ann.members().find((m) => m.name === 'Bo')?.host, false);
 
   // both see each other, with name and picture
   await waitFor(() => ann.members().some((m) => m.kind === 'here' && m.name === 'Bo'), 'Bo is here', 8000);
@@ -93,6 +103,11 @@ test('start a party, join with the invite, allow, and the notes arrive', async (
   ann.openNote(boRow.path!);
   assert.deepEqual(ann.fakeApp.opened, ['Welcome.md']);
 
+  // after joining, Bo can add notes to the party
+  bo.vault.userWrite('From Bo.md', 'made after joining');
+  await waitFor(() => ann.vault.files.get('From Bo.md') === 'made after joining', 'a new note from Bo arrives', 8000);
+  assert.equal(ann.vault.files.has('Bo old.md'), false);
+
   // Bo changes the note; Ann gets it, and Ann's old text is kept in note history
   bo.vault.userWrite('Welcome.md', '# Weekend plan\n\n- one\n- two from Bo\n');
   await waitFor(() => ann.vault.files.get('Welcome.md') === '# Weekend plan\n\n- one\n- two from Bo\n', 'edit arrives', 8000);
@@ -104,6 +119,8 @@ test('start a party, join with the invite, allow, and the notes arrive', async (
   await waitFor(() => fake.notices.some((n) => n.includes('Bo left the party')), 'leave message', 8000);
   await waitFor(() => ann.members().some((m) => m.kind === 'away' && m.name === 'Bo'), 'Bo is a friend now', 8000);
   assert.equal(bo.settings.roomCode, '');
+  assert.equal(bo.settings.role, 'host', 'leaving resets the role');
+  assert.deepEqual(bo.settings.localOnly, []);
   assert.equal(bo.vault.files.has('Welcome.md'), true, 'leaving keeps the notes');
 
   await ann.onunload();

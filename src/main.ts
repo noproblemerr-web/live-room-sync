@@ -195,6 +195,12 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
         log: (level, msg) => this.log(level, msg),
         notify: (msg) => new Notice('Live Room Sync: ' + msg, 10000),
         onSnapshot: (path, text, reason) => void this.history?.record(path, text, reason),
+        // as a guest, the notes that were already here stay private
+        localOnly: this.settings.role === 'guest' ? this.settings.localOnly : [],
+        onLocalOnlyChange: (paths) => {
+          this.settings.localOnly = paths;
+          this.queueMetaSave();
+        },
       });
       engine.importMeta({ known: this.settings.known });
       engine.onMetaChange = () => this.queueMetaSave();
@@ -366,6 +372,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   // ------------------------------------------------------------------ party actions (used by the UI)
 
   async startParty(): Promise<void> {
+    this.settings.role = 'host';
+    this.settings.localOnly = [];
     this.settings.roomCode = generateRoomCode();
     this.settings.guestUntil = 0;
     await this.saveSettings();
@@ -377,6 +385,11 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   async joinParty(codeOrLink: string): Promise<void> {
     const r = checkRoomCode(codeFromPaste(codeOrLink));
     if (!r.clean) return void new Notice('That does not look like a party code.');
+    // Joining someone's party: the notes already in this vault stay private, so they can never be
+    // pushed into the host's vault. (Joining the same party again keeps the list as it was.)
+    const sameParty = this.settings.role === 'guest' && normalizeRoomCode(this.settings.roomCode) === r.clean;
+    if (!sameParty) this.settings.localOnly = this.app.vault.getFiles().map((f) => f.path);
+    this.settings.role = 'guest';
     this.settings.roomCode = formatRoomCode(r.clean);
     this.settings.guestUntil = Date.now() + GUEST_WINDOW_MS;
     await this.saveSettings();
@@ -387,6 +400,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   async leaveParty(): Promise<void> {
     await this.stopSync();
     this.settings.roomCode = '';
+    this.settings.role = 'host';
+    this.settings.localOnly = [];
     this.settings.guestUntil = 0;
     this.settings.metaRoom = '';
     this.settings.known = {};
@@ -415,6 +430,10 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     await this.saveSettings();
     this.updateUser();
     this.refreshViews(true);
+  }
+
+  vaultFileCount(): number {
+    return this.app.vault.getFiles().length;
   }
 
   openNote(path: string): void {
@@ -457,11 +476,11 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     const s = this.settings;
     const out: Member[] = [];
     const awareness = this.engine?.awareness;
-    const live = new Map<string, { name?: string; avatar?: string; color?: string; file?: string; path?: string }>();
+    const live = new Map<string, { name?: string; avatar?: string; color?: string; file?: string; path?: string; role?: string }>();
     if (awareness) {
       for (const st of awareness.getStates().values()) {
-        const u = (st as { user?: { id?: string; pname?: string; avatar?: string; color?: string; file?: string; path?: string } }).user;
-        if (u?.id) live.set(u.id, { name: u.pname, avatar: u.avatar, color: u.color, file: u.file, path: u.path });
+        const u = (st as { user?: { id?: string; pname?: string; avatar?: string; color?: string; file?: string; path?: string; role?: string } }).user;
+        if (u?.id) live.set(u.id, { name: u.pname, avatar: u.avatar, color: u.color, file: u.file, path: u.path, role: u.role });
       }
     }
     const note = (file?: string) => (file ? `Editing ${file}` : 'Online');
@@ -473,6 +492,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       color: s.color,
       kind: 'me',
       note: this.lastFile ? `Editing ${this.lastFile}` : 'You',
+      host: s.role === 'host' && !!normalizeRoomCode(s.roomCode),
     });
 
     const here = new Set<string>();
@@ -490,6 +510,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
           peerId: r.peerId,
           note: note(l?.file),
           path: l?.path,
+          host: l?.role === 'host',
         });
       } else if (r.state === 'pending') {
         out.push({ id: r.info.id, name: r.info.name, avatar: r.info.avatar, color: r.info.color, kind: 'waiting', peerId: r.peerId });
@@ -543,6 +564,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
       colorLight: s.color + '33',
       file: s.showActivity ? file : null,
       path: s.showActivity ? path : null,
+      role: s.role,
     };
   }
 

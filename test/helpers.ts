@@ -155,6 +155,8 @@ export class Device {
   state: Uint8Array | null = null;
   meta: any = {};
   logs: string[] = [];
+  /** the engine's list of private files, as last reported */
+  privateFiles: string[] = [];
   notices: string[] = [];
 
   constructor(
@@ -168,6 +170,8 @@ export class Device {
       identity?: Identity;
       /** what this device decides about someone who wants in (default: allow) */
       decide?: (p: PeerInfo) => GateDecision;
+      /** files that were already here when this device joined as a guest: they stay private */
+      localOnly?: string[];
     } = {},
   ) {}
 
@@ -193,6 +197,8 @@ export class Device {
       syncSettleMs: 60,
       log: (l, m) => this.logs.push(`${l}: ${m}`),
       notify: (m) => this.notices.push(m),
+      localOnly: this.opts.localOnly ?? this.privateFiles,
+      onLocalOnlyChange: (paths) => (this.privateFiles = paths),
       now: () => new Date(2026, 10, 2, 12, 0),
     });
     this.engine.importMeta(this.meta);

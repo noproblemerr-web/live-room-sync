@@ -19,6 +19,8 @@ export interface Member {
   note?: string;
   /** the note they have open, so you can jump to it */
   path?: string;
+  /** they started this party, so their vault leads it */
+  host?: boolean;
 }
 
 export interface PartyStatus {
@@ -47,6 +49,8 @@ export interface PartyHost {
   setProfile(p: { name: string; avatar: string; color: string }): Promise<void>;
   restart(): Promise<void>;
   openNote(path: string): void;
+  /** how many files this vault has now (the join dialog says they stay private) */
+  vaultFileCount(): number;
   /** the settings page sets this while it is open */
   settingsRefresh: (() => void) | null;
 }
@@ -128,7 +132,8 @@ export class PartyView extends ItemView {
       const row = root.createDiv({ cls: 'lrs-card lrs-me' });
       avatar(row, m, true, true);
       const text = row.createDiv({ cls: 'lrs-text' });
-      text.createDiv({ cls: 'lrs-name', text: m.name });
+      const nameEl = text.createDiv({ cls: 'lrs-name', text: m.name });
+      if (m.host) nameEl.createSpan({ cls: 'lrs-chip', text: 'Host' });
       text.createDiv({ cls: 'lrs-note', text: m.note ?? 'You' });
       const edit = row.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': 'Edit your profile' } });
       setIcon(edit, 'pencil');
@@ -159,7 +164,8 @@ export class PartyView extends ItemView {
       const row = root.createDiv({ cls: 'lrs-card' });
       avatar(row, m, true);
       const text = row.createDiv({ cls: 'lrs-text' });
-      text.createDiv({ cls: 'lrs-name', text: m.name });
+      const nameEl = text.createDiv({ cls: 'lrs-name', text: m.name });
+      if (m.host) nameEl.createSpan({ cls: 'lrs-chip', text: 'Host' });
       text.createDiv({ cls: 'lrs-note', text: m.note ?? 'Online' });
       if (m.path) {
         // click a friend to open the note they are in
@@ -255,6 +261,14 @@ export class JoinModal extends Modal {
     const input = contentEl.createEl('input', { type: 'text', placeholder: 'XXXXX-XXXXX-XXXXX-XXXXX or invite link', cls: 'lrs-input lrs-code' });
     input.value = this.initial;
     const msg = contentEl.createDiv({ cls: 'lrs-msg' });
+    const count = this.host.vaultFileCount();
+    contentEl.createDiv({
+      cls: 'lrs-note-box',
+      text:
+        count > 0
+          ? `This vault already has ${count} ${count === 1 ? 'file' : 'files'}. They stay private and are never shared with the party. You will get the host's notes added here.`
+          : "This vault is empty, so you will just receive the host's notes.",
+    });
     contentEl.createDiv({ cls: 'lrs-muted', text: `You will appear as ${s.avatar} ${s.deviceName}. You can change this later.` });
     const row = contentEl.createDiv({ cls: 'lrs-buttons lrs-end' });
     const cancel = row.createEl('button', { text: 'Cancel' });

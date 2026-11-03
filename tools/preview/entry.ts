@@ -6,7 +6,7 @@ import { defaultSettings } from '../../src/settings';
 import type { Version } from '../../src/history';
 
 const now = Date.now();
-const me: Member = { id: 'me', name: 'Maya', avatar: '🦊', color: '#0091ff', kind: 'me', note: 'Editing Weekend plan' };
+const me: Member = { id: 'me', name: 'Maya', avatar: '🦊', color: '#0091ff', kind: 'me', note: 'Editing Weekend plan', host: true };
 const leo: Member = { id: 'leo', name: 'Leo', avatar: '🐼', color: '#f76b15', kind: 'here', peerId: 'p1', note: 'Editing Robot ideas', path: 'Projects/Robot ideas.md' };
 const zoe: Member = { id: 'zoe', name: 'Zoe', avatar: '🐸', color: '#30a46c', kind: 'here', peerId: 'p2', note: 'Online' };
 const sam: Member = { id: 'sam', name: 'Sam', avatar: '🦄', color: '#8e4ec6', kind: 'away', note: 'Partied together 4d ago' };
@@ -42,6 +42,7 @@ const host = {
   setProfile: async () => {},
   restart: async () => {},
   openNote: () => {},
+  vaultFileCount: () => 42,
   settingsRefresh: null,
 } as unknown as PartyHost;
 

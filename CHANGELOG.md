@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+The party leader's vault now leads. Same connection as before, so 0.5.0 works with 0.2.x to 0.4.x in the same party. For the protection below, every guest needs 0.5.0.
+
+- Host and guests: whoever starts a party is the host; whoever joins is a guest. The party panel shows a "Host" tag.
+- A joining vault keeps the notes it already had private. They are never shared, so they can't flood the host's vault or replace its notes. This also covers pictures and other files.
+- Private notes stay private if they are edited, renamed or deleted, and the list survives restarts.
+- When a guest and the host have a note with the same name, the host's version wins. The guest's version is kept as a private `(conflict ...)` copy.
+- After joining, a guest can still edit the host's notes (once allowed) and add new ones, and those are shared.
+- The join dialog says how many files in the vault will stay private.
+- Leaving a party turns the vault back into a normal one.
+- Guests running an older version still share everything, so ask everyone to update.
+
 ## 0.4.0
 
 A new look. Same behavior, so 0.4.0 works with 0.2.x and 0.3.x in the same party.
