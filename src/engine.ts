@@ -69,9 +69,9 @@ interface BinEntry {
   s: number;
 }
 
-type Timer = ReturnType<typeof setTimeout>;
+type Timer = number;
 const timer = (fn: () => void, ms: number): Timer => {
-  const t = setTimeout(fn, ms);
+  const t = window.setTimeout(fn, ms);
   (t as unknown as { unref?: () => void }).unref?.();
   return t;
 };
@@ -162,13 +162,13 @@ export class SyncEngine {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    for (const t of this.timers.values()) clearTimeout(t);
+    for (const t of this.timers.values()) window.clearTimeout(t);
     this.timers.clear();
-    for (const w of this.wanted.values()) if (w.timer) clearTimeout(w.timer);
+    for (const w of this.wanted.values()) if (w.timer) window.clearTimeout(w.timer);
     this.wanted.clear();
-    if (this.graceTimer) clearTimeout(this.graceTimer);
-    if (this.seedTimer) clearTimeout(this.seedTimer);
-    if (this.persistTimer) clearTimeout(this.persistTimer);
+    if (this.graceTimer) window.clearTimeout(this.graceTimer);
+    if (this.seedTimer) window.clearTimeout(this.seedTimer);
+    if (this.persistTimer) window.clearTimeout(this.persistTimer);
     await this.idle();
     if (this.started) await this.flushPersist();
     this.doc.off('update', this.schedulePersist);
@@ -185,7 +185,7 @@ export class SyncEngine {
       this.metaChanged();
     }
     if (this.ready || this.seedTimer) return;
-    if (this.graceTimer) clearTimeout(this.graceTimer);
+    if (this.graceTimer) window.clearTimeout(this.graceTimer);
     this.seedTimer = timer(() => void this.finishSeeding(), this.opts.syncSettleMs ?? 1500);
   }
 
@@ -370,7 +370,7 @@ export class SyncEngine {
       return;
     }
     const w = this.wanted.get(hash);
-    if (w?.timer) clearTimeout(w.timer);
+    if (w?.timer) window.clearTimeout(w.timer);
     const buf = toArrayBuffer(data);
     try {
       for (const [path, e] of [...this.bins]) {
@@ -405,7 +405,7 @@ export class SyncEngine {
   private askNextPeer(hash: string): void {
     const w = this.wanted.get(hash);
     if (!w || !this.net || this.stopped) return;
-    if (w.timer) clearTimeout(w.timer);
+    if (w.timer) window.clearTimeout(w.timer);
     const peers = this.net.peers().filter((p) => !w.tried.has(p));
     if (peers.length === 0) {
       w.tried.clear(); // try everyone again the next time someone joins
@@ -422,8 +422,8 @@ export class SyncEngine {
   private async finishSeeding(): Promise<void> {
     if (this.ready || this.stopped) return;
     this.ready = true;
-    if (this.graceTimer) clearTimeout(this.graceTimer);
-    if (this.seedTimer) clearTimeout(this.seedTimer);
+    if (this.graceTimer) window.clearTimeout(this.graceTimer);
+    if (this.seedTimer) window.clearTimeout(this.seedTimer);
     this.log('info', 'ready: sharing new local files now');
     await this.scanAll();
   }
@@ -668,7 +668,7 @@ export class SyncEngine {
 
   private onBinsChange = (ev: Y.YMapEvent<BinEntry>, txn: Y.Transaction) => {
     if (!isRemoteOrigin(txn.origin) || !this.opts.syncAttachments) return;
-    for (const key of ev.keysChanged) this.schedule(key, () => this.reconcileBinary(key));
+    for (const key of ev.keysChanged as Set<string>) this.schedule(key, () => this.reconcileBinary(key));
   };
 
   // ---------------------------------------------------------------- helpers
@@ -704,7 +704,7 @@ export class SyncEngine {
 
   private schedule(path: string, fn: () => Promise<void>): void {
     const old = this.timers.get(path);
-    if (old) clearTimeout(old);
+    if (old) window.clearTimeout(old);
     this.timers.set(
       path,
       timer(() => {
@@ -743,7 +743,7 @@ export class SyncEngine {
   }
 
   private schedulePersist = () => {
-    if (this.persistTimer) clearTimeout(this.persistTimer);
+    if (this.persistTimer) window.clearTimeout(this.persistTimer);
     this.persistTimer = timer(() => void this.flushPersist(), 2500);
   };
 

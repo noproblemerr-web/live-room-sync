@@ -1,12 +1,12 @@
 # Live Room Sync
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.3.0-informational)
-![Obsidian](https://img.shields.io/badge/Obsidian-1.6.6%2B-7c3aed)
+![Version](https://img.shields.io/badge/version-0.3.1-informational)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7c3aed)
 
 An [Obsidian](https://obsidian.md) plugin that lets you **party up** with friends (or your own devices) and share a whole vault live, with **Google-Docs-style typing**. Start a party, send an invite link, and your friends show up with their name and picture. No account, no server to run, no domain.
 
-> **Status: early (v0.3.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
+> **Status: early (v0.3.1).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
 
 ## Screenshots
 

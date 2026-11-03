@@ -3,6 +3,9 @@ import { SyncEngine, type VaultAdapter, type Persist } from '../src/engine';
 import { RoomProvider, type Transport, type MsgType, type PeerInfo, type GateDecision } from '../src/provider';
 import { signText, type Identity } from '../src/identity';
 
+// the plugin uses window.setTimeout (for Obsidian's popout windows); in Node there is no window
+(globalThis as Record<string, unknown>).window ??= globalThis;
+
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function waitFor(cond: () => boolean | Promise<boolean>, what: string, ms = 8000): Promise<void> {

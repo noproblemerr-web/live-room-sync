@@ -13,7 +13,7 @@ function makeSide(name: string, initial: string) {
   const bound: Record<string, boolean> = {};
   const reconciles: string[] = [];
   const host = {
-    awareness,
+    getAwareness: () => awareness,
     getText: (p: string) => files.get(p) ?? null,
     setBound: (p: string, b: boolean) => (bound[p] = b),
     reconcile: (p: string) => reconciles.push(p),

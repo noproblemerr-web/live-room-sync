@@ -5,6 +5,7 @@ import { SyncEngine, type Persist, type VaultAdapter } from './engine';
 import { RoomProvider, type GateDecision, type PeerInfo, type Transport } from './provider';
 import { History, whenText, type HistoryStore } from './history';
 import { TrysteroTransport } from './transport-trystero';
+import type { TurnServerConfig } from '@trystero-p2p/core';
 import { CmBinder } from './cm-binder';
 import { createIdentity, signText } from './identity';
 import { defaultSettings, ago, type Settings } from './settings';
@@ -53,7 +54,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   private starting = false;
   private lastError = '';
   private logLines: string[] = [];
-  private metaTimer: ReturnType<typeof setTimeout> | null = null;
+  private metaTimer: number | null = null;
   private lastFile: string | null = null;
   private lastSignature = '';
   private lastTouch = 0;
@@ -129,14 +130,15 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     this.app.workspace.onLayoutReady(() => void this.startSync());
   }
 
-  async onunload(): Promise<void> {
-    await this.stopSync();
+  onunload(): void {
+    void this.stopSync();
   }
 
   // ------------------------------------------------------------------ settings
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign(defaultSettings(defaultName(), Platform.isMobile), await this.loadData());
+    const saved = (await this.loadData()) as Partial<Settings> | null;
+    this.settings = Object.assign(defaultSettings(defaultName(), Platform.isMobile), saved ?? {});
   }
 
   async saveSettings(): Promise<void> {
@@ -144,8 +146,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   }
 
   private queueMetaSave(): void {
-    if (this.metaTimer) clearTimeout(this.metaTimer);
-    this.metaTimer = setTimeout(() => {
+    if (this.metaTimer) window.clearTimeout(this.metaTimer);
+    this.metaTimer = window.setTimeout(() => {
       this.metaTimer = null;
       if (!this.engine) return;
       this.settings.known = this.engine.exportMeta().known ?? {};
@@ -283,7 +285,7 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
     const raw = this.settings.turnJson.trim();
     if (!raw) return undefined;
     try {
-      const v = JSON.parse(raw);
+      const v = JSON.parse(raw) as TurnServerConfig | TurnServerConfig[];
       return Array.isArray(v) ? v : [v];
     } catch {
       new Notice('Live Room Sync: the TURN server text is not valid JSON, ignoring it.');
@@ -555,11 +557,8 @@ export default class LiveRoomSync extends Plugin implements PartyHost {
   // ------------------------------------------------------------------ editors
 
   private binderHost() {
-    const plugin = this;
     return {
-      get awareness() {
-        return plugin.engine!.awareness;
-      },
+      getAwareness: () => this.engine!.awareness,
       getText: (p: string) => this.engine?.getText(p) ?? null,
       setBound: (p: string, b: boolean) => this.engine?.setBound(p, b),
       reconcile: (p: string) => void this.engine?.reconcileNow(p),

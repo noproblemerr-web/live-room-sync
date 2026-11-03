@@ -544,7 +544,7 @@ export class LiveRoomSettingTab extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName('Folders not to sync')
-      .setDesc('One folder per line. Hidden folders and the .obsidian folder are never synced.')
+      .setDesc('One folder per line. Hidden folders and the Obsidian settings folder are never synced.')
       .addTextArea((t) =>
         t.setValue(s.excludedFolders).onChange(async (v) => {
           s.excludedFolders = v;

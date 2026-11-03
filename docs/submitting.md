@@ -7,7 +7,7 @@ This checklist is for the person who owns the repository. The plugin is ready fo
 - `README.md`, `LICENSE` and `manifest.json` at the root of the repository.
 - A GitHub release whose tag matches `version` in `manifest.json` (for example `0.3.0`), with `main.js`, `manifest.json` and `styles.css` attached. Pushing a tag does this for you (`.github/workflows/release.yml`).
 - `id` is `live-room-sync` (it must not contain "obsidian" and must be unique).
-- Version uses `x.y.z`, and `versions.json` lists the minimum Obsidian version (1.6.6).
+- Version uses `x.y.z`, and `versions.json` lists the minimum Obsidian version (1.7.2).
 - README has a "Disclosures" section about network use, accounts, telemetry, files and the clipboard.
 - The plugin follows Obsidian's plugin guidelines: no global `app`, no `innerHTML`, no inline styles (colors use CSS variables), only errors in the console, sentence case text, no default hotkeys, and cleanup through `registerEvent` and `registerInterval`.
 

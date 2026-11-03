@@ -10,7 +10,7 @@ import { idOf, publicPart, verifyText } from './identity';
 /** Origin used for changes that came from another device. */
 export const remoteOrigin = (peer: string) => ({ peer });
 export const isRemoteOrigin = (o: unknown): o is { peer: string } =>
-  typeof o === 'object' && o !== null && 'peer' in (o as object);
+  typeof o === 'object' && o !== null && 'peer' in o;
 
 /**
  * hi   = who I am (name, picture, signed proof of my device id)

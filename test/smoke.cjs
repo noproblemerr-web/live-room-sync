@@ -57,7 +57,8 @@ const Plugin = require(path.resolve(__dirname, '../main.js')).default;
   await new Promise((r) => setTimeout(r, 2500));
   console.log('status:', statusEl.t);
   console.log('log:', p.logLines.join(' | '));
-  await p.onunload();
+  p.onunload(); // returns at once; the engine finishes stopping a moment later
+  await new Promise((r) => setTimeout(r, 1500));
   console.log('state file written:', Object.keys(store).join(','));
   console.log('status after stop:', statusEl.t);
   process.exit(0);

@@ -6,7 +6,7 @@ import { EditorView, keymap } from '@codemirror/view';
 
 /** What the binder needs from the sync engine. Kept small so it can be tested alone. */
 export interface BinderHost {
-  awareness: Awareness;
+  getAwareness(): Awareness;
   getText(path: string): Y.Text | null;
   setBound(path: string, bound: boolean): void;
   /** ask the engine to make the file on disk and the shared text agree */
@@ -112,7 +112,7 @@ export class CmBinder {
       view.dispatch({
         effects: this.compartment.reconfigure([
           marker.of(id),
-          yCollab(ytext, this.host.awareness, { undoManager: undo }),
+          yCollab(ytext, this.host.getAwareness(), { undoManager: undo }),
           Prec.highest(keymap.of(yUndoManagerKeymap)),
         ]),
       });

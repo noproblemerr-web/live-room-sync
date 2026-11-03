@@ -68,7 +68,7 @@ export class TrysteroTransport implements Transport {
           this.onMessage?.(type, u8, ctx.peerId);
         },
       });
-      this.actions.set(type, a as never);
+      this.actions.set(type, a);
     }
     this.room.onPeerJoin = (id) => this.markConnected(id);
     this.room.onPeerLeave = (id) => {

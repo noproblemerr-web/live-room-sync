@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 jobs:
   release:
@@ -29,6 +31,13 @@ jobs:
             exit 1
           fi
       - run: npm run build
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

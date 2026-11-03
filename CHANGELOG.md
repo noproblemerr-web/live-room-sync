@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+Fixes from Obsidian's automated review of 0.3.0.
+
+- Fix (error): the plugin used `Workspace.revealLeaf`, which needs Obsidian 1.7.2, so the minimum Obsidian version is now 1.7.2.
+- Use `window.setTimeout` and `window.clearTimeout` so timers work in Obsidian's pop-out windows.
+- Tidy the types: no unsafe `any` values from saved settings, TURN settings and note history, no needless type assertions, no aliasing of `this`, and `onunload` no longer returns a promise.
+- Remove the one `!important` from the stylesheet.
+- Say "the Obsidian settings folder" instead of naming `.obsidian` in the settings text.
+- Release files now carry GitHub build attestations, so anyone can check they were built from this repository.
+
 ## 0.3.0
 
 - Note history: earlier versions of each note are kept on your device (before a friend's change, before a merge, and now and then while you work). Command: "Show history of this note" lets you preview and restore a version.

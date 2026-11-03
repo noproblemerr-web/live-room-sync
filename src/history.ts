@@ -46,7 +46,7 @@ export class History {
     const raw = await this.store.read(key);
     if (!raw) return { path: '', versions: [] };
     try {
-      return JSON.parse(raw);
+      return JSON.parse(raw) as { path: string; versions: Version[] };
     } catch {
       return { path: '', versions: [] }; // a damaged file just starts over
     }

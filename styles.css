@@ -2,7 +2,7 @@
 .live-room-status { cursor: pointer; }
 
 /* Party panel */
-.lrs-party { padding: 0 0 16px 0 !important; }
+.lrs-party.view-content { padding: 0 0 16px 0; }
 
 .lrs-hero {
   padding: 18px 16px 14px;
