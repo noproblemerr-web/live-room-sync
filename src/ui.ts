@@ -63,7 +63,16 @@ function avatar(parent: HTMLElement, m: { avatar: string; color: string }, onlin
 
 // ------------------------------------------------------------------ the party panel
 
+/** The slow-moving contour lines. Made once, so redrawing the list never restarts them. */
+function movingBackground(parent: HTMLElement): void {
+  const bg = parent.createDiv({ cls: 'lrs-bg' });
+  bg.createDiv({ cls: 'lrs-layer lrs-l1' });
+  bg.createDiv({ cls: 'lrs-layer lrs-l2' });
+}
+
 export class PartyView extends ItemView {
+  private scroller: HTMLElement | null = null;
+
   constructor(leaf: WorkspaceLeaf, private host: PartyHost) {
     super(leaf);
   }
@@ -78,12 +87,16 @@ export class PartyView extends ItemView {
   }
   async onOpen(): Promise<void> {
     this.contentEl.addClass('lrs-party');
+    this.contentEl.empty();
+    movingBackground(this.contentEl);
+    this.scroller = this.contentEl.createDiv({ cls: 'lrs-scroll' });
     this.render();
   }
 
   render(): void {
     const host = this.host;
-    const root = this.contentEl;
+    const root = this.scroller;
+    if (!root) return;
     root.empty();
     const st = host.status();
 
@@ -192,6 +205,8 @@ export class FirstRunModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('lrs-modalbox');
+    contentEl.addClass('lrs-modal');
     contentEl.createEl('h2', { text: 'Before the first sync' });
     contentEl.createEl('p', {
       text: 'Live Room Sync will create, change and move notes in this vault to match the other devices in your party.',
@@ -231,11 +246,13 @@ export class JoinModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('lrs-modalbox');
+    contentEl.addClass('lrs-modal');
     const s = this.host.settings;
     contentEl.addClass('lrs-modal');
     contentEl.createEl('h2', { text: 'Join a party' });
     contentEl.createEl('p', { text: 'Paste the code or invite link your friend sent you.', cls: 'lrs-muted' });
-    const input = contentEl.createEl('input', { type: 'text', placeholder: 'XXXXX-XXXXX-XXXXX-XXXXX or invite link', cls: 'lrs-input' });
+    const input = contentEl.createEl('input', { type: 'text', placeholder: 'XXXXX-XXXXX-XXXXX-XXXXX or invite link', cls: 'lrs-input lrs-code' });
     input.value = this.initial;
     const msg = contentEl.createDiv({ cls: 'lrs-msg' });
     contentEl.createDiv({ cls: 'lrs-muted', text: `You will appear as ${s.avatar} ${s.deviceName}. You can change this later.` });
@@ -289,6 +306,8 @@ export class ProfileModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('lrs-modalbox');
+    contentEl.addClass('lrs-modal');
     const s = this.host.settings;
     let name = s.deviceName;
     let face = s.avatar;
@@ -367,6 +386,8 @@ export class HistoryModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('lrs-modalbox');
+    contentEl.addClass('lrs-modal');
     contentEl.addClass('lrs-modal');
     contentEl.createEl('h2', { text: `History of "${this.title}"` });
     contentEl.createEl('p', {
@@ -414,6 +435,8 @@ class LeaveModal extends Modal {
   }
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass('lrs-modalbox');
+    contentEl.addClass('lrs-modal');
     contentEl.createEl('h2', { text: 'Leave this party?' });
     contentEl.createEl('p', {
       text: 'Your notes stay on this device. They just stop syncing with the party. You can rejoin later with the code.',
@@ -452,6 +475,12 @@ export class LiveRoomSettingTab extends PluginSettingTab {
     const s = host.settings;
     host.settingsRefresh = () => this.display();
     containerEl.empty();
+
+    const banner = containerEl.createDiv({ cls: 'lrs-banner' });
+    movingBackground(banner);
+    const bannerText = banner.createDiv({ cls: 'lrs-hero' });
+    bannerText.createDiv({ cls: 'lrs-title', text: 'Party up' });
+    bannerText.createDiv({ cls: 'lrs-sub', text: 'Share your notes live with friends' });
 
     new Setting(containerEl)
       .setName('Your profile')

@@ -1,40 +1,45 @@
 # Live Room Sync
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.3.1-informational)
+![Version](https://img.shields.io/badge/version-0.4.0-informational)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7c3aed)
 
 An [Obsidian](https://obsidian.md) plugin that lets you **party up** with friends (or your own devices) and share a whole vault live, with **Google-Docs-style typing**. Start a party, send an invite link, and your friends show up with their name and picture. No account, no server to run, no domain.
 
-> **Status: early (v0.3.1).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
+> **Status: early (v0.4.0).** It has automated tests and was tried between two Obsidian windows on one Mac, but not yet on phones or across different networks. **Back up your vault before you use it.**
 
 ## Screenshots
 
-Real screenshots from Obsidian 1.14.5 on macOS, taken in throwaway demo vaults (Ann and Bo).
+A dark, blocky pixel look with slow-moving contour lines behind everything. These pictures show the plugin's real panel and dialogs, drawn with its real code and stylesheet in a browser (`npm run preview`), so Obsidian's own window around them is left out. The contour lines drift slowly when you use it; a still picture can't show that.
 
 **Start.** Open the party panel from the ribbon or the status bar. Start a party, or join one.
 
-![Party panel with Start a party and Join buttons](docs/images/party-start.png)
-
-**Invite.** Press "Invite friends" to copy a link. Your friends click it, or paste the code.
-
-![Party panel for a new party showing your profile and an Invite friends button](docs/images/party-waiting.png)
+![Party panel with Start a party and Join buttons](docs/images/party-start.jpg)
 
 **Allow.** When someone new joins, you decide. Nothing is shared with them until you press Allow.
 
-![Party panel showing Bo wants to join with Allow and Block buttons](docs/images/join-request.png)
+![Party panel showing Kai wants to join with Allow and Block buttons](docs/images/join-request.jpg)
 
-**Together.** Everyone in the party, with their picture and a green dot. Notes sync in both directions.
+**Together.** Everyone in the party with their picture, what they are editing, and friends you partied with before. Click a friend to jump to their note.
 
-![Party panel with two people in the party](docs/images/party-members.png)
+![Party panel with three people in the party and one friend who is away](docs/images/party-members.jpg)
 
-**Typo check.** Codes have a check letter, so a mistyped code is caught before you join an empty room.
+**Join.** Paste a code or an invite link. Codes have a check letter, so a typo is caught before you join an empty room.
 
-![Join dialog warning that a pasted code may have a typo](docs/images/join-typo.png)
+![Join dialog with a good code](docs/images/join-ok.jpg)
+![Join dialog warning that a code may have a typo](docs/images/join-typo.jpg)
 
-**Settings.** Simple on top, technical options folded under "Advanced".
+**Profile.** Pick a name, a picture and a color. Friends see them next to your cursor.
 
-![Live Room Sync settings: profile, party, syncing](docs/images/settings.png)
+![Profile dialog with name, picture and color pickers](docs/images/profile.jpg)
+
+**Note history.** Earlier versions of a note, kept on your device. Preview one and restore it.
+
+![Note history dialog listing three earlier versions](docs/images/history.jpg)
+
+**First run.** The plugin asks you to back up your vault before it syncs anything.
+
+![Before the first sync prompt asking for a vault backup](docs/images/first-run.jpg)
 
 **Live typing.** The same note open on two devices, each with the other's named cursor. (This picture comes from the plugin's browser test page, which uses the same editor code as Obsidian.)
 
@@ -42,6 +47,7 @@ Real screenshots from Obsidian 1.14.5 on macOS, taken in throwaway demo vaults (
 
 ## What it does
 
+- **A look of its own.** A dark, blocky pixel style with slow-moving contour lines, pixel fonts, square pictures and chunky buttons. It's all CSS, with no extra code running. The motion stops if your system asks for less motion.
 - **Party panel.** See who is here, who wants to join, what they are working on, and friends you have partied with before ("Partied together 4d ago").
 - **Your profile.** Pick a name, an emoji picture and a color. Friends see them, and your cursor shows as `🐼 Bo` in the note.
 - **Easy invites.** One link or one code. Clicking an invite link opens Obsidian and the join dialog.
@@ -197,6 +203,8 @@ npm run build         # bundle to main.js
 npm test              # sync, join, approval and rename tests
 npm run test:smoke    # load the built plugin against a fake Obsidian
 npm run test:browser  # live-typing tests in headless Chromium (needs Playwright's Chromium)
+npm run css           # rebuild styles.css (fonts and contour lines included) from styles.src.css
+npm run preview       # draw the party panel and dialogs in a browser, see tools/preview/README.md
 ```
 
 Source layout:
@@ -212,8 +220,14 @@ Source layout:
 | `src/transport-trystero.ts` | WebRTC transport via [Trystero](https://github.com/dmotz/trystero) |
 | `src/cm-binder.ts` | Binds the editor (CodeMirror) to the shared text |
 | `src/util.ts` | Diffing, party codes and invite links, hashing, conflict names |
+| `src/history.ts` | Note history kept on this device |
+| `styles.src.css` | The look (source). `npm run css` builds `styles.css` from it |
+| `assets/`, `licenses/` | Pixel fonts, the contour-line picture, and the fonts' licenses |
+| `tools/` | Scripts that make the contour lines and the stylesheet, and a browser preview of the panel |
 
 ## Credits
+
+Pixel fonts: [Silkscreen](https://github.com/googlefonts/silkscreen) and [Pixelify Sans](https://github.com/eifetx/Pixelify-Sans), both under the SIL Open Font License 1.1 (see `licenses/`). They are Minecraft-style pixel fonts, but not Mojang's own font, which can't be bundled.
 
 Built on [Yjs](https://github.com/yjs/yjs), [y-codemirror.next](https://github.com/yjs/y-codemirror.next), [Trystero](https://github.com/dmotz/trystero) and [diff-match-patch](https://github.com/google/diff-match-patch).
 

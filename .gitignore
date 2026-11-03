@@ -3,3 +3,4 @@ main.js
 test/browser/out.js
 *.zip
 .DS_Store
+tools/preview/out/
